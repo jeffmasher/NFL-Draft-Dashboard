@@ -1,0 +1,101 @@
+name: Scrape Saints Data
+
+on:
+  # ── Scheduled runs: incremental only (current season) ───────────────────────
+  # Runs every Tuesday at 6am CT (noon UTC).
+  # During the offseason this will scrape ~0 new rows and skip the commit.
+  schedule:
+    - cron: "0 12 * * 2"
+
+  # ── Manual trigger from the Actions tab ─────────────────────────────────────
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Scrape mode"
+        required: true
+        type: choice
+        default: incremental
+        options:
+          - incremental   # current season only, merges with existing data
+          - full          # ALL seasons from scratch (first run or data reset)
+      year:
+        description: "Specific year (overrides mode, e.g. 2023)"
+        required: false
+        type: string
+      start_year:
+        description: "Start year for a custom range (used with end_year)"
+        required: false
+        type: string
+      end_year:
+        description: "End year for a custom range"
+        required: false
+        type: string
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120   # full historical scrape can take ~40 min
+
+    permissions:
+      contents: write   # needed to commit data back to repo
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
+
+      - name: Run scraper
+        env:
+          STATHEAD_SESSION: ${{ secrets.STATHEAD_SESSION }}
+          OUTPUT_DIR: docs/data
+        run: |
+          cd scraper
+
+          # ── Build argument string ────────────────────────────────────────────
+          YEAR="${{ github.event.inputs.year }}"
+          START="${{ github.event.inputs.start_year }}"
+          END="${{ github.event.inputs.end_year }}"
+          MODE="${{ github.event.inputs.mode }}"
+
+          if [ -n "$YEAR" ]; then
+            # Explicit year overrides everything
+            ARGS="--year $YEAR"
+          elif [ -n "$START" ]; then
+            # Year range
+            ARGS="--start $START"
+            [ -n "$END" ] && ARGS="$ARGS --end $END"
+          elif [ "$MODE" = "full" ]; then
+            ARGS="--full"
+          else
+            # Default for both scheduled runs and incremental manual runs
+            ARGS="--incremental"
+          fi
+
+          echo "🏈  Running: python scraper.py $ARGS"
+          python scraper.py $ARGS
+
+      - name: Commit & push updated data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data/
+          # Only commit if something actually changed — skips offseason no-op runs
+          if git diff --staged --quiet; then
+            echo "✔  No data changes — skipping commit."
+          else
+            git commit -m "chore: update Saints data [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+            git push
+          fi
