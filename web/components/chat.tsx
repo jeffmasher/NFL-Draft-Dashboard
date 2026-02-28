@@ -3,6 +3,7 @@
 import { useChat } from "@ai-sdk/react";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export function Chat() {
   const { messages, sendMessage, status, error } = useChat({
@@ -92,6 +93,7 @@ export function Chat() {
                 {m.role === "assistant" ? (
                   <div className="chat-markdown font-body text-sm leading-relaxed">
                     <Markdown
+                      remarkPlugins={[remarkGfm]}
                       components={{
                         table: ({ children }) => (
                           <div className="my-2 overflow-x-auto rounded border border-border">

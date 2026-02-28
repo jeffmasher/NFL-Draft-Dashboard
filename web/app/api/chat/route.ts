@@ -27,8 +27,8 @@ When answering questions:
 FORMATTING RULES:
 - When presenting stats for multiple players or multiple games, ALWAYS use a markdown table, never a bulleted list.
 - Use column headers like Player, Season, GP, Yds, TD, etc.
-- Right-align numeric columns. Add commas to numbers over 999 (e.g. 5,208).
-- Keep a brief intro sentence before the table and a short takeaway after.
+- Add commas to numbers over 999 (e.g. 5,208).
+- Keep a brief intro sentence before the table. Do NOT add takeaways, summaries, or analysis after the table.
 - For single-player or simple answers, a short paragraph is fine.
 
 Keep responses concise but informative. Use data to back up your answers.`,
