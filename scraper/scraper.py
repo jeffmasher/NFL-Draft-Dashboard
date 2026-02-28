@@ -31,6 +31,7 @@ import asyncio
 import json
 import argparse
 import os
+import sys
 import base64
 from pathlib import Path
 from datetime import datetime
@@ -47,11 +48,35 @@ STORAGE_STATE = Path("session.json")
 OUTPUT_DIR    = Path(os.environ.get("OUTPUT_DIR", "docs/data"))
 PAGE_LIMIT    = 200
 
+RESULT_TIMEOUT = int(os.environ.get("RESULT_TIMEOUT", "60"))  # seconds
+DEBUG_DIR      = Path(os.environ.get("DEBUG_DIR", "debug"))
+
 STAT_TYPES = {
     "passing":   ("pass_att", "gt", "0"),
     "rushing":   ("rush_att", "gt", "0"),
     "receiving": ("rec",      "gt", "0"),
 }
+
+
+class ScrapeError(Exception):
+    """Raised when scraping fails in a way that should abort the run."""
+
+
+async def save_debug_snapshot(page, label):
+    """Save a screenshot and HTML dump for post-mortem debugging."""
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stem = f"{ts}_{label}"
+    try:
+        await page.screenshot(path=str(DEBUG_DIR / f"{stem}.png"), full_page=True)
+    except Exception as e:
+        print(f"    ⚠️  Could not save screenshot: {e}")
+    try:
+        html = await page.content()
+        (DEBUG_DIR / f"{stem}.html").write_text(html, encoding="utf-8")
+    except Exception as e:
+        print(f"    ⚠️  Could not save HTML dump: {e}")
+    print(f"    📸  Debug snapshot saved: {DEBUG_DIR / stem}.*")
 
 PASS_COLS = ["player","player_id","game_date","season","week_num","game_location",
              "opp","game_result","team","pass_cmp","pass_att","pass_yds",
@@ -172,6 +197,26 @@ def strip_season(df: pd.DataFrame, season: int) -> pd.DataFrame:
 # SCRAPING
 # ─────────────────────────────────────────────────────────────────────────────
 
+async def validate_session(browser, storage_state):
+    """Check that the StatHead session is still valid before scraping."""
+    ctx_kwargs = {"storage_state": storage_state} if storage_state else {}
+    context = await browser.new_context(**ctx_kwargs)
+    page = await context.new_page()
+    try:
+        await page.goto("https://stathead.com/football/", wait_until="domcontentloaded", timeout=RESULT_TIMEOUT * 1000)
+        # Check for common login/paywall indicators
+        login_el = await page.query_selector("a[href*='login'], .login-required, .paywall-content, .sr_paywall")
+        if login_el:
+            await save_debug_snapshot(page, "session_expired")
+            raise ScrapeError("Session appears expired — login/paywall element detected on StatHead")
+        print("  ✔  Session validated — StatHead access confirmed.")
+    except PlaywrightTimeout:
+        await save_debug_snapshot(page, "session_validate_timeout")
+        raise ScrapeError("Timed out navigating to StatHead for session validation")
+    finally:
+        await context.close()
+
+
 def build_url(stat_key, offset=0, start_year=None, end_year=None):
     cstat, ccomp, cval = STAT_TYPES[stat_key]
     params = [
@@ -192,10 +237,10 @@ def build_url(stat_key, offset=0, start_year=None, end_year=None):
 
 async def parse_table(page):
     try:
-        await page.wait_for_selector("#results, .stathead-message", timeout=15000)
+        await page.wait_for_selector("#results, .stathead-message", timeout=RESULT_TIMEOUT * 1000)
     except PlaywrightTimeout:
-        print("    ⚠️  Timed out waiting for results.")
-        return None
+        await save_debug_snapshot(page, "parse_table_timeout")
+        raise ScrapeError(f"Timed out waiting for results after {RESULT_TIMEOUT}s")
 
     no_results = await page.query_selector(".stathead-message")
     if no_results:
@@ -206,8 +251,9 @@ async def parse_table(page):
     html = await page.content()
     try:
         tables = pd.read_html(html, flavor="lxml")
-    except Exception:
-        return None
+    except Exception as e:
+        await save_debug_snapshot(page, "parse_table_read_html_fail")
+        raise ScrapeError(f"pd.read_html failed: {e}")
 
     for t in tables:
         if "player" in [c.lower() for c in t.columns]:
@@ -227,30 +273,36 @@ async def scrape_stat(browser, stat_key, start_year=None, end_year=None, storage
 
     print(f"\n  📊  Scraping {stat_key.upper()}  ({start_year or 'all'}–{end_year or 'all'})...")
 
-    while True:
-        url = build_url(stat_key, offset, start_year, end_year)
-        print(f"      offset={offset}  →  {url[:80]}...")
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        except PlaywrightTimeout:
-            print("      ⚠️  Timeout, retrying...")
-            await asyncio.sleep(3)
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    try:
+        while True:
+            url = build_url(stat_key, offset, start_year, end_year)
+            print(f"      offset={offset}  →  {url[:80]}...")
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=RESULT_TIMEOUT * 1000)
+            except PlaywrightTimeout:
+                print("      ⚠️  Timeout, retrying...")
+                await asyncio.sleep(3)
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=RESULT_TIMEOUT * 1000)
+                except PlaywrightTimeout:
+                    await save_debug_snapshot(page, f"scrape_{stat_key}_nav_timeout")
+                    raise ScrapeError(f"Double navigation timeout for {stat_key} at offset {offset}")
 
-        df = await parse_table(page)
-        if df is None or df.empty:
-            print(f"      ✔  No more results.")
-            break
+            df = await parse_table(page)
+            if df is None or df.empty:
+                print(f"      ✔  No more results.")
+                break
 
-        frames.append(df)
-        print(f"      ✔  {len(df)} rows")
-        if len(df) < PAGE_LIMIT:
-            break
+            frames.append(df)
+            print(f"      ✔  {len(df)} rows")
+            if len(df) < PAGE_LIMIT:
+                break
 
-        offset += PAGE_LIMIT
-        await asyncio.sleep(1.5)
+            offset += PAGE_LIMIT
+            await asyncio.sleep(1.5)
+    finally:
+        await context.close()
 
-    await context.close()
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
@@ -424,9 +476,16 @@ async def main():
         # ── Scrape ────────────────────────────────────────────────────────────
         browser = await pw.chromium.launch(headless=True)
 
-        pass_raw = await scrape_stat(browser, "passing",   start_year, end_year, storage_state)
-        rush_raw = await scrape_stat(browser, "rushing",   start_year, end_year, storage_state)
-        rec_raw  = await scrape_stat(browser, "receiving", start_year, end_year, storage_state)
+        try:
+            await validate_session(browser, storage_state)
+
+            pass_raw = await scrape_stat(browser, "passing",   start_year, end_year, storage_state)
+            rush_raw = await scrape_stat(browser, "rushing",   start_year, end_year, storage_state)
+            rec_raw  = await scrape_stat(browser, "receiving", start_year, end_year, storage_state)
+        except ScrapeError as exc:
+            print(f"\n❌  Scrape failed: {exc}")
+            await browser.close()
+            sys.exit(1)
 
         await browser.close()
 
@@ -438,6 +497,14 @@ async def main():
 
         fresh_df = pd.concat([pass_df, rush_df, rec_df], ignore_index=True)
         print(f"  ✔  {len(fresh_df):,} fresh rows scraped")
+
+        # ── Guard: fail loudly if full scrape produced nothing ────────────────
+        if len(fresh_df) == 0:
+            if args.incremental:
+                print("  ℹ️  0 rows scraped — normal during offseason.")
+            else:
+                print("\n❌  0 rows scraped in non-incremental mode — aborting.")
+                sys.exit(1)
 
         # ── Merge with historical if incremental ──────────────────────────────
         if historical_df is not None:
