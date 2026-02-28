@@ -4,7 +4,11 @@ import { useChat } from "@ai-sdk/react";
 import { useEffect, useRef, useState } from "react";
 
 export function Chat() {
-  const { messages, sendMessage, status } = useChat();
+  const { messages, sendMessage, status, error } = useChat({
+    onError: (err) => {
+      console.error("Chat error:", err);
+    },
+  });
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const isLoading = status === "streaming" || status === "submitted";
@@ -111,6 +115,12 @@ export function Chat() {
                 <span className="h-2 w-2 animate-bounce rounded-full bg-gold/50" style={{ animationDelay: "300ms" }} />
               </div>
             </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-rec/30 bg-rec/10 px-4 py-3 font-body text-sm text-rec">
+            Error: {error.message}
           </div>
         )}
 
