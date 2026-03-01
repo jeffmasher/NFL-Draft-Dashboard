@@ -84,6 +84,28 @@ jobs:
           echo "Running: python pfa_scraper.py $ARGS"
           python pfa_scraper.py $ARGS
 
+      - name: Enrich player bios from PFA
+        env:
+          DB_PATH: saints_encyclopedia.db
+        run: |
+          cd scraper
+          if [ "${{ github.event.inputs.mode }}" = "full" ]; then
+            python pfa_player_scraper.py --full
+          else
+            python pfa_player_scraper.py --missing
+          fi
+
+      - name: Scrape draft picks from PFA
+        env:
+          DB_PATH: saints_encyclopedia.db
+        run: |
+          cd scraper
+          if [ "${{ github.event.inputs.mode }}" = "full" ]; then
+            python pfa_draft_scraper.py --full
+          else
+            python pfa_draft_scraper.py --incremental
+          fi
+
       - name: Upload debug artifacts
         if: always()
         uses: actions/upload-artifact@v4

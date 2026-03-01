@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-PFA Box Score Scraper — Saints Encyclopedia Phase 1
+PFA Box Score Scraper — Saints Encyclopedia
 
 Scrapes historical box scores for the New Orleans Saints from
-Pro Football Archives (profootballarchives.com), with FootballDB
-(footballdb.com) as a fallback for seasons PFA doesn't cover yet.
+Pro Football Archives (profootballarchives.com).
 
 Usage:
     python pfa_scraper.py --full              # All seasons 1967-present
@@ -13,7 +12,6 @@ Usage:
     python pfa_scraper.py --start 2010 --end 2019   # Custom range
     python pfa_scraper.py --incremental       # Current season only
     python pfa_scraper.py --export-only       # Just regenerate JSON
-    python pfa_scraper.py --footballdb 2025   # Scrape a season from FootballDB
 """
 
 import argparse
@@ -30,7 +28,6 @@ from urllib3.util.retry import Retry
 from db import init_db, upsert_game, upsert_player, insert_stat_row, \
     insert_scoring_play, clear_game_stats, compute_team_totals, game_exists
 from parsers import parse_season_page, parse_boxscore
-from footballdb_parser import parse_footballdb_results, parse_footballdb_boxscore
 from export import export_json
 
 # ---------------------------------------------------------------------------
@@ -38,7 +35,6 @@ from export import export_json
 # ---------------------------------------------------------------------------
 
 BASE_URL = "https://www.profootballarchives.com"
-FOOTBALLDB_URL = "https://www.footballdb.com"
 FIRST_SEASON = 1967   # Saints' inaugural season
 REQUEST_DELAY = 1.0   # seconds between requests (polite rate limiting)
 
@@ -50,7 +46,7 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join("..", "docs", "data"))
 # HTTP session with retry
 # ---------------------------------------------------------------------------
 
-def make_session(footballdb: bool = False) -> requests.Session:
+def make_session() -> requests.Session:
     session = requests.Session()
     retry = Retry(
         total=3,
@@ -60,15 +56,9 @@ def make_session(footballdb: bool = False) -> requests.Session:
     adapter = HTTPAdapter(max_retries=retry)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    if footballdb:
-        # FootballDB requires a browser-like user agent
-        session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        })
-    else:
-        session.headers.update({
-            "User-Agent": "SaintsEncyclopedia/1.0 (historical research project)",
-        })
+    session.headers.update({
+        "User-Agent": "SaintsEncyclopedia/1.0 (historical research project)",
+    })
     return session
 
 
@@ -126,118 +116,6 @@ def _insert_boxscore(conn, game_id: str, box: dict, force: bool = False) -> None
 
     compute_team_totals(conn, game_id)
     conn.commit()
-
-
-def scrape_footballdb_season(session, conn, year: int, force: bool = False) -> dict:
-    """Scrape a season from FootballDB. Returns a summary dict."""
-    print(f"\n{'='*60}")
-    print(f"Season {year} (FootballDB)")
-    print(f"{'='*60}")
-
-    # Fetch results page
-    url = f"{FOOTBALLDB_URL}/teams/nfl/new-orleans-saints/results/{year}"
-    html = fetch(session, url)
-    if html is None:
-        print(f"  SKIP: could not fetch results page for {year}")
-        return {"season": year, "games": 0, "boxscores": 0, "skipped": 0, "errors": 0}
-
-    # Parse game list
-    games = parse_footballdb_results(html, year)
-    print(f"  Found {len(games)} games with box score links")
-
-    # Try to get venue/attendance data from PFA season page
-    # (PFA has richer game metadata even when box scores aren't available)
-    pfa_session = make_session(footballdb=False)
-    pfa_html = fetch(pfa_session, season_url(year))
-    if pfa_html:
-        pfa_games = parse_season_page(pfa_html, year)
-        for game in pfa_games:
-            # Only use PFA data for metadata (venue, attendance, etc.)
-            # Don't overwrite with broken box score URLs
-            game["boxscore_url"] = None
-            upsert_game(conn, game)
-        conn.commit()
-        print(f"  Loaded {len(pfa_games)} game records from PFA (metadata only)")
-
-    # Scrape box scores from FootballDB
-    boxscore_count = 0
-    skipped = 0
-    errors = 0
-    total = len(games)
-
-    for i, game in enumerate(games, 1):
-        game_id = game["game_id"]
-        boxscore_url = game["boxscore_url"]
-
-        if not force and game_exists(conn, game_id):
-            skipped += 1
-            continue
-
-        time.sleep(REQUEST_DELAY)
-
-        box_html = fetch(session, boxscore_url)
-        if box_html is None:
-            errors += 1
-            print(f"  [{i}/{total}] ERROR: {game_id}")
-            continue
-
-        box = parse_footballdb_boxscore(box_html, game_id)
-
-        # Upsert the game record from FootballDB data
-        away_team, home_team = box["teams"]
-        is_saints_home = home_team and "New Orleans" in home_team
-        opponent = away_team if is_saints_home else home_team
-        home_away = "home" if is_saints_home else "away"
-
-        away_score = box["metadata"].get("away_score")
-        home_score = box["metadata"].get("home_score")
-        saints_score = home_score if is_saints_home else away_score
-        opp_score = away_score if is_saints_home else home_score
-
-        result = None
-        if saints_score is not None and opp_score is not None:
-            if saints_score > opp_score:
-                result = "W"
-            elif saints_score < opp_score:
-                result = "L"
-            else:
-                result = "T"
-
-        game_record = {
-            "game_id": game_id,
-            "season": year,
-            "game_date": game["game_date"],
-            "day_of_week": None,
-            "game_type": game["game_type"],
-            "opponent": opponent or "Unknown",
-            "opponent_abbr": None,
-            "home_away": home_away,
-            "saints_score": saints_score,
-            "opponent_score": opp_score,
-            "result": result,
-            "location": None,
-            "venue": None,
-            "attendance": None,
-            "boxscore_url": boxscore_url,
-        }
-        upsert_game(conn, game_record)
-
-        _insert_boxscore(conn, game_id, box, force=force)
-        boxscore_count += 1
-
-        print(f"  [{i}/{total}] {game_id}: {game['game_date']} vs {opponent or '?'} "
-              f"({saints_score}-{opp_score} {result})")
-
-    print(f"\n  Season {year} complete: {boxscore_count} scraped, "
-          f"{skipped} skipped, {errors} errors")
-
-    return {
-        "season": year,
-        "games": total,
-        "boxscores": boxscore_count,
-        "skipped": skipped,
-        "errors": errors,
-    }
 
 
 def scrape_season(session, conn, year: int, force: bool = False) -> dict:
@@ -327,8 +205,6 @@ def parse_args():
                       help="Scrape current season only")
     mode.add_argument("--export-only", action="store_true",
                       help="Only regenerate JSON from existing DB")
-    mode.add_argument("--footballdb", type=int, metavar="YYYY",
-                      help="Scrape a season from FootballDB (fallback source)")
 
     parser.add_argument("--start", type=int, metavar="YYYY",
                         help="Start year (use with --full to override 1967)")
@@ -354,14 +230,7 @@ def main():
     conn = init_db(db_path)
     print(f"Database: {os.path.abspath(db_path)}")
 
-    if args.footballdb:
-        # FootballDB scrape for a specific season
-        session = make_session(footballdb=True)
-        summary = scrape_footballdb_season(session, conn, args.footballdb, force=args.force)
-        print(f"\nBox scores scraped: {summary['boxscores']}, "
-              f"Skipped: {summary['skipped']}, Errors: {summary['errors']}")
-
-    elif not args.export_only:
+    if not args.export_only:
         # Determine season range
         cur = current_season()
 

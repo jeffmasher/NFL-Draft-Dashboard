@@ -107,9 +107,46 @@ CREATE TABLE IF NOT EXISTS scoring_plays (
     description TEXT, saints_score INT, opp_score INT
 );
 
+CREATE TABLE IF NOT EXISTS player_participation (
+    player_id TEXT NOT NULL,
+    season INTEGER NOT NULL,
+    gp INTEGER NOT NULL DEFAULT 0,
+    gs INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (player_id, season)
+);
+
+CREATE TABLE IF NOT EXISTS player_page_sacks (
+    player_id TEXT NOT NULL,
+    season INTEGER NOT NULL,
+    sacks REAL,
+    yds INTEGER,
+    PRIMARY KEY (player_id, season)
+);
+
+CREATE TABLE IF NOT EXISTS player_page_fumbles (
+    player_id TEXT NOT NULL,
+    season INTEGER NOT NULL,
+    opp_rec INTEGER,
+    opp_yds INTEGER,
+    td INTEGER,
+    PRIMARY KEY (player_id, season)
+);
+
+CREATE TABLE IF NOT EXISTS draft_picks (
+    season INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    pick INTEGER NOT NULL,
+    player_name TEXT NOT NULL,
+    player_id TEXT,
+    position TEXT,
+    college TEXT,
+    PRIMARY KEY (season, round, pick)
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_season ON games(season);
 CREATE INDEX IF NOT EXISTS idx_games_date ON games(game_date);
 CREATE INDEX IF NOT EXISTS idx_scoring_game ON scoring_plays(game_id);
+CREATE INDEX IF NOT EXISTS idx_participation_player ON player_participation(player_id);
 """
 
 # Column lists for each stat table (used for inserts)
@@ -165,28 +202,29 @@ def init_db(path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
 
-    # Add new player bio columns (idempotent — ignore if already present)
-    new_columns = [
+    # Add player bio columns (idempotent — ignore if already present)
+    player_columns = [
         ("position", "TEXT"),
         ("college", "TEXT"),
         ("height", "TEXT"),
         ("weight", "INTEGER"),
         ("birth_date", "TEXT"),
+        ("birth_city", "TEXT"),
         ("fdb_id", "TEXT"),
         ("fdb_url", "TEXT"),
         ("seasons_text", "TEXT"),
     ]
-    for col_name, col_type in new_columns:
+    for col_name, col_type in player_columns:
         try:
             conn.execute(f"ALTER TABLE players ADD COLUMN {col_name} {col_type}")
         except sqlite3.OperationalError:
             pass  # column already exists
 
-    # Index for cross-referencing by FootballDB ID
+    # Add jersey_number to player_participation (idempotent)
     try:
-        conn.execute("CREATE INDEX idx_players_fdb_id ON players(fdb_id)")
+        conn.execute("ALTER TABLE player_participation ADD COLUMN jersey_number TEXT")
     except sqlite3.OperationalError:
-        pass  # index already exists
+        pass
 
     conn.commit()
     return conn
@@ -209,11 +247,56 @@ def upsert_game(conn: sqlite3.Connection, game: dict) -> None:
     )
 
 
-def upsert_player(conn: sqlite3.Connection, player_id: str, name: str, url: str | None = None) -> None:
-    """Insert a player if not already present."""
+def upsert_player(conn: sqlite3.Connection, player_id: str, name: str, url: str | None = None, bio: dict | None = None) -> None:
+    """Insert a player if not already present, optionally updating bio fields."""
     conn.execute(
         "INSERT OR IGNORE INTO players (player_id, player_name, pfa_url) VALUES (?, ?, ?)",
         (player_id, name, url),
+    )
+    if bio:
+        fields = ["height", "weight", "birth_date", "birth_city", "position", "college"]
+        updates = {f: bio[f] for f in fields if f in bio and bio[f] is not None}
+        if updates:
+            set_clause = ", ".join(f"{k} = ?" for k in updates)
+            vals = list(updates.values()) + [player_id]
+            conn.execute(f"UPDATE players SET {set_clause} WHERE player_id = ?", vals)
+
+
+def upsert_participation(conn: sqlite3.Connection, player_id: str, rows: list) -> None:
+    """Insert or replace participation rows for a player."""
+    for row in rows:
+        conn.execute(
+            "INSERT OR REPLACE INTO player_participation (player_id, season, gp, gs, jersey_number) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (player_id, row["season"], row.get("gp", 0), row.get("gs", 0), row.get("jersey")),
+        )
+
+
+def upsert_page_sacks(conn: sqlite3.Connection, player_id: str, rows: list) -> None:
+    """Insert or replace season-level sack data from player pages."""
+    for row in rows:
+        conn.execute(
+            "INSERT OR REPLACE INTO player_page_sacks (player_id, season, sacks, yds) VALUES (?, ?, ?, ?)",
+            (player_id, row["season"], row.get("sacks"), row.get("yds")),
+        )
+
+
+def upsert_page_fumbles(conn: sqlite3.Connection, player_id: str, rows: list) -> None:
+    """Insert or replace season-level fumble data from player pages."""
+    for row in rows:
+        conn.execute(
+            "INSERT OR REPLACE INTO player_page_fumbles (player_id, season, opp_rec, opp_yds, td) VALUES (?, ?, ?, ?, ?)",
+            (player_id, row["season"], row.get("opp_rec"), row.get("opp_yds"), row.get("td")),
+        )
+
+
+def upsert_draft_pick(conn: sqlite3.Connection, pick: dict) -> None:
+    """Insert or replace a draft pick."""
+    conn.execute(
+        "INSERT OR REPLACE INTO draft_picks (season, round, pick, player_name, player_id, position, college) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (pick["season"], pick["round"], pick["pick"], pick["player_name"],
+         pick.get("player_id"), pick.get("position"), pick.get("college")),
     )
 
 
