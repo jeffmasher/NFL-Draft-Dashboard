@@ -268,12 +268,12 @@ def _parse_participation(soup):
     """
     rows = []
 
-    # Find the table with GP/GS headers
+    # Find the GP/GS table — first header must be "YEAR TEAM" to exclude
+    # the college participation table (which also has GP/GS columns).
     gp_table = None
     for table in soup.find_all("table"):
         headers = [th.get_text(strip=True) for th in table.find_all("th")]
-        header_str = " ".join(headers)
-        if "GP" in header_str and "GS" in header_str:
+        if headers and headers[0].upper() == "YEAR TEAM" and "GP" in headers and "GS" in headers:
             gp_table = table
             break
 
