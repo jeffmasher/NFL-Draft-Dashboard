@@ -99,10 +99,19 @@ export default function StatsPage() {
         })}
       </div>
 
+      {/* Result count / empty state */}
+      {!loading && (
+        <div className="mb-3 font-body text-xs text-dim">
+          {data.length === 0
+            ? `No ${gameType === "playoff" ? "postseason" : gameType} data available`
+            : `${data.length} result${data.length !== 1 ? "s" : ""}`}
+        </div>
+      )}
+
       {/* Table */}
       {loading ? (
         <div className="py-12 text-center font-body text-dim">Loading...</div>
-      ) : (
+      ) : data.length > 0 ? (
         <div className="rounded-lg border border-border">
           <StatTable
             data={data}
@@ -110,7 +119,7 @@ export default function StatsPage() {
             columns={columns}
           />
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -5,9 +5,12 @@ PFA Draft Scraper — Saints Encyclopedia
 Scrapes New Orleans Saints draft picks from Pro Football Archives draft pages
 and populates the draft_picks table.
 
-PFA draft page URL pattern (Saints):
-  https://www.profootballarchives.com/drafts/{YEAR}nflno.html
-  e.g. https://www.profootballarchives.com/drafts/1967nflno.html
+PFA draft page URL pattern (full NFL draft):
+  https://www.profootballarchives.com/drafts/{YEAR}nfldraft.html
+  e.g. https://www.profootballarchives.com/drafts/2024nfldraft.html
+
+Table columns: Round, Overall, Team, Player, Pos, College, Notes
+We filter rows where Team == "New Orleans Saints".
 
 Usage:
     python pfa_draft_scraper.py --full              # All years 1967-present
@@ -76,8 +79,8 @@ def fetch(session, url):
 # ---------------------------------------------------------------------------
 
 def draft_page_url(year):
-    """Return the PFA Saints draft page URL for a given year."""
-    return f"{BASE_URL}/drafts/{year}nflno.html"
+    """Return the PFA NFL draft page URL for a given year."""
+    return f"{BASE_URL}/drafts/{year}nfldraft.html"
 
 
 def _extract_player_id(href):
@@ -90,38 +93,26 @@ def _extract_player_id(href):
 
 def parse_draft_page(html, year):
     """
-    Parse a PFA draft page for the Saints and return a list of pick dicts.
+    Parse a PFA full NFL draft page and return Saints picks only.
+
+    Table columns: Round, Overall, Team, Player, Pos, College, Notes
+    Filters rows where Team == "New Orleans Saints".
 
     Each dict: {season, round, pick, player_name, player_id, position, college}
     """
     soup = BeautifulSoup(html, "lxml")
     picks = []
 
-    # PFA draft pages have a table with columns like:
-    # Round | Pick | Player | Position | College | ...
-    # Find the main draft table (contains "Round" header or similar)
+    # Find the table with Round/Overall/Team headers
     draft_table = None
     for table in soup.find_all("table"):
-        headers = [th.get_text(strip=True).upper() for th in table.find_all("th")]
-        if not headers:
-            # Some pages use the first row as headers with <td>
-            first_row = table.find("tr")
-            if first_row:
-                headers = [td.get_text(strip=True).upper() for td in first_row.find_all("td")]
-        if any(h in ("ROUND", "RD", "PICK", "PLAYER") for h in headers):
+        first_row = table.find("tr")
+        if not first_row:
+            continue
+        headers = [cell.get_text(strip=True).upper() for cell in first_row.find_all(["th", "td"])]
+        if "ROUND" in headers and "OVERALL" in headers and "TEAM" in headers:
             draft_table = table
             break
-
-    if not draft_table:
-        # Fallback: try to parse any table with numeric first column (round numbers)
-        for table in soup.find_all("table"):
-            rows = table.find_all("tr")
-            if len(rows) > 3:
-                # Check if first data cell looks like a round number
-                first_cells = rows[1].find_all("td") if len(rows) > 1 else []
-                if first_cells and first_cells[0].get_text(strip=True).isdigit():
-                    draft_table = table
-                    break
 
     if not draft_table:
         return picks
@@ -130,101 +121,58 @@ def parse_draft_page(html, year):
     if not rows:
         return picks
 
-    # Determine header row and column positions
-    header_row = rows[0]
-    headers = [cell.get_text(strip=True).upper() for cell in header_row.find_all(["th", "td"])]
+    headers = [cell.get_text(strip=True).upper() for cell in rows[0].find_all(["th", "td"])]
 
-    def find_col(names):
-        for name in names:
-            for i, h in enumerate(headers):
-                if name in h:
-                    return i
+    def col(name):
+        for i, h in enumerate(headers):
+            if name in h:
+                return i
         return None
 
-    round_idx = find_col(["ROUND", "RD"])
-    pick_idx = find_col(["PICK", "PK", "OVERALL"])
-    player_idx = find_col(["PLAYER", "NAME"])
-    pos_idx = find_col(["POS", "POSITION"])
-    college_idx = find_col(["COLLEGE", "SCHOOL"])
+    round_idx   = col("ROUND")
+    overall_idx = col("OVERALL")
+    team_idx    = col("TEAM")
+    player_idx  = col("PLAYER")
+    pos_idx     = col("POS")
+    college_idx = col("COLLEGE")
 
-    # If we couldn't find headers, assume positional defaults
-    if round_idx is None:
-        round_idx = 0
-    if pick_idx is None:
-        pick_idx = 1
-    if player_idx is None:
-        player_idx = 2
-    if pos_idx is None:
-        pos_idx = 3
-    if college_idx is None:
-        college_idx = 4
-
-    current_round = None
+    if any(i is None for i in [round_idx, overall_idx, team_idx, player_idx]):
+        return picks
 
     for tr in rows[1:]:
         cells = tr.find_all(["td", "th"])
-        if not cells:
+        if len(cells) <= team_idx:
             continue
 
-        # Some pages use bold/header rows to indicate round breaks
-        if len(cells) == 1:
-            text = cells[0].get_text(strip=True)
-            round_m = re.match(r'(\d+)(?:st|nd|rd|th)?\s*Round', text, re.IGNORECASE)
-            if round_m:
-                current_round = int(round_m.group(1))
-            continue
-
-        if len(cells) < 3:
+        team = cells[team_idx].get_text(strip=True)
+        if team != "New Orleans Saints":
             continue
 
         def cell_text(idx):
-            if idx < len(cells):
-                return cells[idx].get_text(strip=True)
-            return ""
+            return cells[idx].get_text(strip=True) if idx is not None and idx < len(cells) else ""
 
-        def cell_link(idx):
-            if idx < len(cells):
-                a = cells[idx].find("a", href=True)
-                return a["href"] if a else None
-            return None
-
-        # Round
         round_text = cell_text(round_idx)
-        round_num = None
-        if round_text.isdigit():
-            round_num = int(round_text)
-        elif current_round is not None:
-            round_num = current_round
-        else:
-            continue  # Can't determine round
-
-        # Pick (overall)
-        pick_text = cell_text(pick_idx)
-        pick_num = None
-        if pick_text.isdigit():
-            pick_num = int(pick_text)
-        else:
-            # Some pages only have pick-within-round; use position in list
-            pick_num = len(picks) + 1
-
-        # Player name and optional player_id from link
+        overall_text = cell_text(overall_idx)
         player_name = cell_text(player_idx)
-        if not player_name or player_name.upper() in ("PLAYER", "NAME", ""):
-            continue
-        player_href = cell_link(player_idx)
-        player_id = _extract_player_id(player_href)
 
-        position = cell_text(pos_idx) if pos_idx < len(cells) else None
-        college = cell_text(college_idx) if college_idx < len(cells) else None
+        if not round_text.isdigit() or not overall_text.isdigit():
+            continue
+        if not player_name or player_name.upper() in ("PLAYER", "NAME"):
+            continue
+
+        player_href = None
+        if player_idx < len(cells):
+            a = cells[player_idx].find("a", href=True)
+            player_href = a["href"] if a else None
 
         picks.append({
             "season": year,
-            "round": round_num,
-            "pick": pick_num,
+            "round": int(round_text),
+            "pick": int(overall_text),
             "player_name": player_name,
-            "player_id": player_id,
-            "position": position or None,
-            "college": college or None,
+            "player_id": _extract_player_id(player_href),
+            "position": cell_text(pos_idx) or None,
+            "college": cell_text(college_idx) or None,
         })
 
     return picks

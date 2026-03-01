@@ -143,6 +143,15 @@ export default async function PlayerProfilePage({
               <span className="text-text">{player.weight}</span>
             </span>
           )}
+          {player.birth_date && (
+            <span className="text-dim">
+              <span className="text-dim/60">Born:</span>{" "}
+              <span className="text-text">
+                {player.birth_date}
+                {player.birth_city && `, ${player.birth_city}`}
+              </span>
+            </span>
+          )}
         </div>
       )}
 

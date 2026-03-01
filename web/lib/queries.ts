@@ -39,6 +39,7 @@ export interface Player {
   height: string | null;
   weight: number | null;
   birth_date: string | null;
+  birth_city: string | null;
   fdb_id: string | null;
   fdb_url: string | null;
   seasons_text: string | null;
