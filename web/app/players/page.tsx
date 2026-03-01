@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { getPlayersWithStats, searchPlayers } from "@/lib/queries";
 import { Search } from "@/components/search";
+import { PlayersStatsTable, PlayersSearchTable } from "@/components/players-table";
 
 export const metadata = { title: "Players | Saints Encyclopedia" };
 
@@ -13,9 +14,11 @@ export default async function PlayersPage({
 }) {
   const { q } = await searchParams;
 
-  const players = q
+  const rawPlayers = q
     ? await searchPlayers(q, 100)
     : await getPlayersWithStats(200, 0);
+
+  const players = JSON.parse(JSON.stringify(rawPlayers));
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -33,97 +36,12 @@ export default async function PlayersPage({
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full font-mono text-sm">
-          <thead>
-            <tr className="border-b border-border text-dim">
-              <th className="px-3 py-2 text-left font-medium">Player</th>
-              {!q && (
-                <>
-                  <th className="px-3 py-2 text-right font-medium">
-                    <span className="text-pass">Pass Yds</span>
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    <span className="text-pass">Pass TD</span>
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    <span className="text-rush">Rush Yds</span>
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    <span className="text-rush">Rush TD</span>
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    <span className="text-rec">Rec Yds</span>
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    <span className="text-rec">Rec TD</span>
-                  </th>
-                </>
-              )}
-              {q && (
-                <>
-                  <th className="px-3 py-2 text-right font-medium">First</th>
-                  <th className="px-3 py-2 text-right font-medium">Last</th>
-                </>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {players.map((p: Record<string, unknown>) => (
-              <tr
-                key={String(p.player_id)}
-                className="border-b border-border/50 transition-colors hover:bg-panel"
-              >
-                <td className="px-3 py-2">
-                  <Link
-                    href={`/players/${p.player_id}`}
-                    className="text-text hover:text-gold hover:underline"
-                  >
-                    {String(p.player_name)}
-                  </Link>
-                </td>
-                {!q && (
-                  <>
-                    <td className="px-3 py-2 text-right text-pass">
-                      {Number(p.pass_yds) > 0
-                        ? Number(p.pass_yds).toLocaleString()
-                        : "-"}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {Number(p.pass_td) > 0 ? String(p.pass_td) : "-"}
-                    </td>
-                    <td className="px-3 py-2 text-right text-rush">
-                      {Number(p.rush_yds) > 0
-                        ? Number(p.rush_yds).toLocaleString()
-                        : "-"}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {Number(p.rush_td) > 0 ? String(p.rush_td) : "-"}
-                    </td>
-                    <td className="px-3 py-2 text-right text-rec">
-                      {Number(p.rec_yds) > 0
-                        ? Number(p.rec_yds).toLocaleString()
-                        : "-"}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {Number(p.rec_td) > 0 ? String(p.rec_td) : "-"}
-                    </td>
-                  </>
-                )}
-                {q && (
-                  <>
-                    <td className="px-3 py-2 text-right text-dim">
-                      {String(p.first_season ?? "-")}
-                    </td>
-                    <td className="px-3 py-2 text-right text-dim">
-                      {String(p.last_season ?? "-")}
-                    </td>
-                  </>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="rounded-lg border border-border">
+        {!q ? (
+          <PlayersStatsTable data={players} />
+        ) : (
+          <PlayersSearchTable data={players} />
+        )}
       </div>
 
       {players.length === 0 && (

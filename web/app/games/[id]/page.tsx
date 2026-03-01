@@ -13,6 +13,7 @@ import {
   getGameSacks,
   getGameInterceptions,
 } from "@/lib/queries";
+import { GamePassingTable, GameRushingTable, GameReceivingTable } from "@/components/game-tables";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -22,6 +23,32 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return {
     title: `Saints ${ha} ${game.opponent} (${game.game_date}) | Saints Encyclopedia`,
   };
+}
+
+/** Strip trailing team abbreviation from team names: "Las Vegas RaidersLV" → "Las Vegas Raiders" */
+function cleanTeamName(team: string): string {
+  return team.replace(/[A-Z]{2,4}$/, "").trim();
+}
+
+/** Clean up scraped scoring play descriptions that have run-together text. */
+function cleanDescription(desc: string): string {
+  return desc
+    // Separate run-together letters→digits: "Kamara6" → "Kamara 6"
+    .replace(/([a-zA-Z])(\d)/g, "$1 $2")
+    // Separate run-together digits→letters: "50FG" → "50 FG"
+    .replace(/(\d)([a-zA-Z])/g, "$1 $2")
+    // Separate camelCase: "LutzKick" → "Lutz Kick"
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    // Separate "kick" from preceding name: "Lutzkick" → "Lutz kick"
+    .replace(/([a-z])(kick|pass|run|return|good|blocked|failed|safety)/gi, "$1 $2")
+    // Space before parens: "FG(" → "FG ("
+    .replace(/([^\s(])(\()/g, "$1 $2")
+    // Remove ALL team-name parentheticals at end: "(Tennessee TitansTEN)", "(New Orleans SaintsNO)", etc.
+    .replace(/\s*\([^)]*[A-Z]{2,3}\)\s*$/, "")
+    // Insert "-yard" after numbers before play types: "50 FG" → "50-yard FG"
+    .replace(/(\d+)\s+(FG|run|pass|punt return|kick return|fumble return|interception return|punt|fumble)/gi, "$1-yard $2")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 export default async function GamePage({
@@ -36,9 +63,9 @@ export default async function GamePage({
   const [
     teamStats,
     scoringPlays,
-    passing,
-    rushing,
-    receiving,
+    rawPassing,
+    rawRushing,
+    rawReceiving,
     defense,
     sacks,
     interceptions,
@@ -63,12 +90,16 @@ export default async function GamePage({
   const isSaintsTeam = (team: string) =>
     team.includes("Saints") || team.includes("New Orleans");
 
-  const saintsPassers = passing.filter((p) => isSaintsTeam(p.team));
-  const oppPassers = passing.filter((p) => !isSaintsTeam(p.team));
-  const saintsRushers = rushing.filter((p) => isSaintsTeam(p.team));
-  const oppRushers = rushing.filter((p) => !isSaintsTeam(p.team));
-  const saintsReceivers = receiving.filter((p) => isSaintsTeam(p.team));
-  const oppReceivers = receiving.filter((p) => !isSaintsTeam(p.team));
+  const passing = JSON.parse(JSON.stringify(rawPassing));
+  const rushing = JSON.parse(JSON.stringify(rawRushing));
+  const receiving = JSON.parse(JSON.stringify(rawReceiving));
+
+  const saintsPassers = passing.filter((p: Record<string, unknown>) => isSaintsTeam(String(p.team)));
+  const oppPassers = passing.filter((p: Record<string, unknown>) => !isSaintsTeam(String(p.team)));
+  const saintsRushers = rushing.filter((p: Record<string, unknown>) => isSaintsTeam(String(p.team)));
+  const oppRushers = rushing.filter((p: Record<string, unknown>) => !isSaintsTeam(String(p.team)));
+  const saintsReceivers = receiving.filter((p: Record<string, unknown>) => isSaintsTeam(String(p.team)));
+  const oppReceivers = receiving.filter((p: Record<string, unknown>) => !isSaintsTeam(String(p.team)));
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -91,7 +122,7 @@ export default async function GamePage({
           {game.game_type !== "regular" && (
             <span className="uppercase text-gold">{game.game_type} &middot; </span>
           )}
-          {game.venue && `${game.venue} &middot; `}
+          {game.venue && <>{game.venue} &middot; </>}
           {game.attendance && `Att: ${game.attendance.toLocaleString()}`}
         </div>
         <div className="flex items-center justify-center gap-8">
@@ -148,46 +179,14 @@ export default async function GamePage({
                 </tr>
               </thead>
               <tbody>
-                <CompRow
-                  label="Rush Att-Yds"
-                  saints={`${saintsStats.rush_att}-${saintsStats.rush_yds}`}
-                  opp={`${oppStats.rush_att}-${oppStats.rush_yds}`}
-                />
-                <CompRow
-                  label="Rush TD"
-                  saints={saintsStats.rush_td}
-                  opp={oppStats.rush_td}
-                />
-                <CompRow
-                  label="Pass Comp-Att"
-                  saints={`${saintsStats.pass_com}-${saintsStats.pass_att}`}
-                  opp={`${oppStats.pass_com}-${oppStats.pass_att}`}
-                />
-                <CompRow
-                  label="Pass Yds"
-                  saints={saintsStats.pass_yds}
-                  opp={oppStats.pass_yds}
-                />
-                <CompRow
-                  label="Pass TD"
-                  saints={saintsStats.pass_td}
-                  opp={oppStats.pass_td}
-                />
-                <CompRow
-                  label="INT"
-                  saints={saintsStats.pass_int}
-                  opp={oppStats.pass_int}
-                />
-                <CompRow
-                  label="Sacks"
-                  saints={saintsStats.sacks}
-                  opp={oppStats.sacks}
-                />
-                <CompRow
-                  label="Interceptions"
-                  saints={saintsStats.interceptions}
-                  opp={oppStats.interceptions}
-                />
+                <CompRow label="Rush Att-Yds" saints={`${saintsStats.rush_att}-${saintsStats.rush_yds}`} opp={`${oppStats.rush_att}-${oppStats.rush_yds}`} />
+                <CompRow label="Rush TD" saints={saintsStats.rush_td} opp={oppStats.rush_td} />
+                <CompRow label="Pass Comp-Att" saints={`${saintsStats.pass_com}-${saintsStats.pass_att}`} opp={`${oppStats.pass_com}-${oppStats.pass_att}`} />
+                <CompRow label="Pass Yds" saints={saintsStats.pass_yds} opp={oppStats.pass_yds} />
+                <CompRow label="Pass TD" saints={saintsStats.pass_td} opp={oppStats.pass_td} />
+                <CompRow label="INT" saints={saintsStats.pass_int} opp={oppStats.pass_int} />
+                <CompRow label="Sacks" saints={saintsStats.sacks} opp={oppStats.sacks} />
+                <CompRow label="Interceptions" saints={saintsStats.interceptions} opp={oppStats.interceptions} />
               </tbody>
             </table>
           </div>
@@ -211,10 +210,10 @@ export default async function GamePage({
                 </span>
                 <div className="flex-1">
                   <span className="font-body text-sm text-text">
-                    {play.description}
+                    {cleanDescription(play.description)}
                   </span>
                   <span className="ml-2 font-mono text-xs text-dim">
-                    ({play.team})
+                    ({cleanTeamName(String(play.team))})
                   </span>
                 </div>
                 <span className="font-mono text-sm font-bold text-gold">
@@ -230,106 +229,20 @@ export default async function GamePage({
       <div className="grid gap-8 lg:grid-cols-2">
         {/* Saints Stats */}
         <div>
-          <h2 className="mb-4 font-heading text-xl font-bold text-gold">
-            SAINTS
-          </h2>
-
+          <h2 className="mb-4 font-heading text-xl font-bold text-gold">SAINTS</h2>
           {saintsPassers.length > 0 && (
             <StatSection title="PASSING" color="pass">
-              <table className="w-full font-mono text-sm">
-                <thead>
-                  <tr className="border-b border-border text-dim">
-                    <th className="px-2 py-1.5 text-left font-medium">Player</th>
-                    <th className="px-2 py-1.5 text-right font-medium">C/A</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Yds</th>
-                    <th className="px-2 py-1.5 text-right font-medium">TD</th>
-                    <th className="px-2 py-1.5 text-right font-medium">INT</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Rtg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {saintsPassers.map((p) => (
-                    <tr key={p.player_id} className="border-b border-border/30 hover:bg-smoke">
-                      <td className="px-2 py-1.5">
-                        <Link href={`/players/${p.player_id}`} className="text-text hover:text-gold">
-                          {p.player_name}
-                        </Link>
-                      </td>
-                      <td className="px-2 py-1.5 text-right">{p.com}/{p.att}</td>
-                      <td className="px-2 py-1.5 text-right text-pass">{p.yds}</td>
-                      <td className="px-2 py-1.5 text-right">{p.td}</td>
-                      <td className="px-2 py-1.5 text-right">{p.int_thrown}</td>
-                      <td className="px-2 py-1.5 text-right">{p.rtg?.toFixed(1)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <GamePassingTable data={saintsPassers} linkPlayers={true} />
             </StatSection>
           )}
-
           {saintsRushers.length > 0 && (
             <StatSection title="RUSHING" color="rush">
-              <table className="w-full font-mono text-sm">
-                <thead>
-                  <tr className="border-b border-border text-dim">
-                    <th className="px-2 py-1.5 text-left font-medium">Player</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Att</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Yds</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Avg</th>
-                    <th className="px-2 py-1.5 text-right font-medium">TD</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Lg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {saintsRushers.map((p) => (
-                    <tr key={p.player_id} className="border-b border-border/30 hover:bg-smoke">
-                      <td className="px-2 py-1.5">
-                        <Link href={`/players/${p.player_id}`} className="text-text hover:text-gold">
-                          {p.player_name}
-                        </Link>
-                      </td>
-                      <td className="px-2 py-1.5 text-right">{p.att}</td>
-                      <td className="px-2 py-1.5 text-right text-rush">{p.yds}</td>
-                      <td className="px-2 py-1.5 text-right">{p.avg?.toFixed(1)}</td>
-                      <td className="px-2 py-1.5 text-right">{p.td}</td>
-                      <td className="px-2 py-1.5 text-right">{p.lg}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <GameRushingTable data={saintsRushers} linkPlayers={true} />
             </StatSection>
           )}
-
           {saintsReceivers.length > 0 && (
             <StatSection title="RECEIVING" color="rec">
-              <table className="w-full font-mono text-sm">
-                <thead>
-                  <tr className="border-b border-border text-dim">
-                    <th className="px-2 py-1.5 text-left font-medium">Player</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Rec</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Yds</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Avg</th>
-                    <th className="px-2 py-1.5 text-right font-medium">TD</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Lg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {saintsReceivers.map((p) => (
-                    <tr key={p.player_id} className="border-b border-border/30 hover:bg-smoke">
-                      <td className="px-2 py-1.5">
-                        <Link href={`/players/${p.player_id}`} className="text-text hover:text-gold">
-                          {p.player_name}
-                        </Link>
-                      </td>
-                      <td className="px-2 py-1.5 text-right">{p.rec}</td>
-                      <td className="px-2 py-1.5 text-right text-rec">{p.yds}</td>
-                      <td className="px-2 py-1.5 text-right">{p.avg?.toFixed(1)}</td>
-                      <td className="px-2 py-1.5 text-right">{p.td}</td>
-                      <td className="px-2 py-1.5 text-right">{p.lg}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <GameReceivingTable data={saintsReceivers} linkPlayers={true} />
             </StatSection>
           )}
         </div>
@@ -339,91 +252,19 @@ export default async function GamePage({
           <h2 className="mb-4 font-heading text-xl font-bold text-dim">
             {game.opponent.toUpperCase()}
           </h2>
-
           {oppPassers.length > 0 && (
             <StatSection title="PASSING" color="pass">
-              <table className="w-full font-mono text-sm">
-                <thead>
-                  <tr className="border-b border-border text-dim">
-                    <th className="px-2 py-1.5 text-left font-medium">Player</th>
-                    <th className="px-2 py-1.5 text-right font-medium">C/A</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Yds</th>
-                    <th className="px-2 py-1.5 text-right font-medium">TD</th>
-                    <th className="px-2 py-1.5 text-right font-medium">INT</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Rtg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {oppPassers.map((p) => (
-                    <tr key={p.player_id} className="border-b border-border/30 hover:bg-smoke">
-                      <td className="px-2 py-1.5 text-text">{p.player_name}</td>
-                      <td className="px-2 py-1.5 text-right">{p.com}/{p.att}</td>
-                      <td className="px-2 py-1.5 text-right text-pass">{p.yds}</td>
-                      <td className="px-2 py-1.5 text-right">{p.td}</td>
-                      <td className="px-2 py-1.5 text-right">{p.int_thrown}</td>
-                      <td className="px-2 py-1.5 text-right">{p.rtg?.toFixed(1)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <GamePassingTable data={oppPassers} linkPlayers={false} />
             </StatSection>
           )}
-
           {oppRushers.length > 0 && (
             <StatSection title="RUSHING" color="rush">
-              <table className="w-full font-mono text-sm">
-                <thead>
-                  <tr className="border-b border-border text-dim">
-                    <th className="px-2 py-1.5 text-left font-medium">Player</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Att</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Yds</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Avg</th>
-                    <th className="px-2 py-1.5 text-right font-medium">TD</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Lg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {oppRushers.map((p) => (
-                    <tr key={p.player_id} className="border-b border-border/30 hover:bg-smoke">
-                      <td className="px-2 py-1.5 text-text">{p.player_name}</td>
-                      <td className="px-2 py-1.5 text-right">{p.att}</td>
-                      <td className="px-2 py-1.5 text-right text-rush">{p.yds}</td>
-                      <td className="px-2 py-1.5 text-right">{p.avg?.toFixed(1)}</td>
-                      <td className="px-2 py-1.5 text-right">{p.td}</td>
-                      <td className="px-2 py-1.5 text-right">{p.lg}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <GameRushingTable data={oppRushers} linkPlayers={false} />
             </StatSection>
           )}
-
           {oppReceivers.length > 0 && (
             <StatSection title="RECEIVING" color="rec">
-              <table className="w-full font-mono text-sm">
-                <thead>
-                  <tr className="border-b border-border text-dim">
-                    <th className="px-2 py-1.5 text-left font-medium">Player</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Rec</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Yds</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Avg</th>
-                    <th className="px-2 py-1.5 text-right font-medium">TD</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Lg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {oppReceivers.map((p) => (
-                    <tr key={p.player_id} className="border-b border-border/30 hover:bg-smoke">
-                      <td className="px-2 py-1.5 text-text">{p.player_name}</td>
-                      <td className="px-2 py-1.5 text-right">{p.rec}</td>
-                      <td className="px-2 py-1.5 text-right text-rec">{p.yds}</td>
-                      <td className="px-2 py-1.5 text-right">{p.avg?.toFixed(1)}</td>
-                      <td className="px-2 py-1.5 text-right">{p.td}</td>
-                      <td className="px-2 py-1.5 text-right">{p.lg}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <GameReceivingTable data={oppReceivers} linkPlayers={false} />
             </StatSection>
           )}
         </div>
@@ -432,53 +273,22 @@ export default async function GamePage({
   );
 }
 
-function CompRow({
-  label,
-  saints,
-  opp,
-}: {
-  label: string;
-  saints: string | number;
-  opp: string | number;
-}) {
+function CompRow({ label, saints, opp }: { label: string; saints: string | number; opp: string | number }) {
   return (
     <tr className="border-b border-border/50">
       <td className="px-3 py-2 text-right font-mono text-text">{saints}</td>
-      <td className="px-3 py-2 text-center font-heading text-xs uppercase text-dim">
-        {label}
-      </td>
+      <td className="px-3 py-2 text-center font-heading text-xs uppercase text-dim">{label}</td>
       <td className="px-3 py-2 text-left font-mono text-text">{opp}</td>
     </tr>
   );
 }
 
-function StatSection({
-  title,
-  color,
-  children,
-}: {
-  title: string;
-  color: string;
-  children: React.ReactNode;
-}) {
-  const borderColor =
-    color === "pass"
-      ? "border-pass/30"
-      : color === "rush"
-        ? "border-rush/30"
-        : "border-rec/30";
-  const textColor =
-    color === "pass"
-      ? "text-pass"
-      : color === "rush"
-        ? "text-rush"
-        : "text-rec";
-
+function StatSection({ title, color, children }: { title: string; color: string; children: React.ReactNode }) {
+  const borderColor = color === "pass" ? "border-pass/30" : color === "rush" ? "border-rush/30" : "border-rec/30";
+  const textColor = color === "pass" ? "text-pass" : color === "rush" ? "text-rush" : "text-rec";
   return (
     <div className={`mb-4 rounded-lg border ${borderColor} bg-smoke`}>
-      <div className={`px-3 py-2 font-heading text-xs font-bold uppercase ${textColor}`}>
-        {title}
-      </div>
+      <div className={`px-3 py-2 font-heading text-xs font-bold uppercase ${textColor}`}>{title}</div>
       {children}
     </div>
   );

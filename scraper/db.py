@@ -164,6 +164,30 @@ def init_db(path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+
+    # Add new player bio columns (idempotent — ignore if already present)
+    new_columns = [
+        ("position", "TEXT"),
+        ("college", "TEXT"),
+        ("height", "TEXT"),
+        ("weight", "INTEGER"),
+        ("birth_date", "TEXT"),
+        ("fdb_id", "TEXT"),
+        ("fdb_url", "TEXT"),
+        ("seasons_text", "TEXT"),
+    ]
+    for col_name, col_type in new_columns:
+        try:
+            conn.execute(f"ALTER TABLE players ADD COLUMN {col_name} {col_type}")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
+    # Index for cross-referencing by FootballDB ID
+    try:
+        conn.execute("CREATE INDEX idx_players_fdb_id ON players(fdb_id)")
+    except sqlite3.OperationalError:
+        pass  # index already exists
+
     conn.commit()
     return conn
 

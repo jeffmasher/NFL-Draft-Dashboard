@@ -17,6 +17,7 @@ export async function POST(req: Request) {
 When answering questions:
 - Use the available tools to query the database for accurate data
 - The Saints won Super Bowl XLIV after the 2009 season, defeating the Colts 31-17
+- Do NOT narrate your tool usage. Never say "I'll search for...", "Let me look up...", or "Let me query...". Just silently use tools and provide the answer.
 
 FORMATTING RULES:
 - For multi-row results, ALWAYS use a markdown table. Never use bulleted lists or numbered lists for stats.

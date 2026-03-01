@@ -5,12 +5,15 @@ import {
   getCareerPassingLeaders,
   getCareerRushingLeaders,
   getCareerReceivingLeaders,
+  getCareerDefensiveLeaders,
   getSeasonPassingRecords,
   getSeasonRushingRecords,
   getSeasonReceivingRecords,
+  getSeasonDefensiveRecords,
   getSingleGamePassingLeaders,
   getSingleGameRushingLeaders,
   getSingleGameReceivingLeaders,
+  getSingleGameDefensiveLeaders,
 } from "@/lib/queries";
 
 export async function GET(request: NextRequest) {
@@ -23,16 +26,19 @@ export async function GET(request: NextRequest) {
       passing: getCareerPassingLeaders,
       rushing: getCareerRushingLeaders,
       receiving: getCareerReceivingLeaders,
+      defense: getCareerDefensiveLeaders,
     },
     season: {
       passing: getSeasonPassingRecords,
       rushing: getSeasonRushingRecords,
       receiving: getSeasonReceivingRecords,
+      defense: getSeasonDefensiveRecords,
     },
     game: {
       passing: getSingleGamePassingLeaders,
       rushing: getSingleGameRushingLeaders,
       receiving: getSingleGameReceivingLeaders,
+      defense: getSingleGameDefensiveLeaders,
     },
   };
 

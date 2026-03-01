@@ -9,6 +9,7 @@ import {
   getSeasonRushingLeaders,
   getSeasonReceivingLeaders,
 } from "@/lib/queries";
+import { SeasonGameTable } from "@/components/season-tables";
 
 export async function generateMetadata({ params }: { params: Promise<{ year: string }> }) {
   const { year } = await params;
@@ -24,7 +25,7 @@ export default async function SeasonDetailPage({
   const year = parseInt(yearStr, 10);
   if (isNaN(year)) notFound();
 
-  const [games, teamStatsArr, passLeaders, rushLeaders, recLeaders] =
+  const [rawGames, teamStatsArr, passLeaders, rushLeaders, recLeaders] =
     await Promise.all([
       getSeasonGames(year),
       getSeasonTeamStats(year),
@@ -33,15 +34,16 @@ export default async function SeasonDetailPage({
       getSeasonReceivingLeaders(year),
     ]);
 
-  if (games.length === 0) notFound();
+  if (rawGames.length === 0) notFound();
 
+  const games = JSON.parse(JSON.stringify(rawGames));
   const teamStats = teamStatsArr[0];
-  const regularGames = games.filter((g) => g.game_type === "regular");
-  const playoffGames = games.filter((g) => g.game_type === "playoff");
-  const preseasonGames = games.filter((g) => g.game_type === "preseason");
-  const wins = regularGames.filter((g) => g.result === "W").length;
-  const losses = regularGames.filter((g) => g.result === "L").length;
-  const ties = regularGames.filter((g) => g.result === "T").length;
+  const regularGames = games.filter((g: Record<string, unknown>) => g.game_type === "regular");
+  const playoffGames = games.filter((g: Record<string, unknown>) => g.game_type === "playoff");
+  const preseasonGames = games.filter((g: Record<string, unknown>) => g.game_type === "preseason");
+  const wins = regularGames.filter((g: Record<string, unknown>) => g.result === "W").length;
+  const losses = regularGames.filter((g: Record<string, unknown>) => g.result === "L").length;
+  const ties = regularGames.filter((g: Record<string, unknown>) => g.result === "T").length;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -69,34 +71,31 @@ export default async function SeasonDetailPage({
       <div className="grid gap-8 lg:grid-cols-3">
         {/* Game Results */}
         <div className="lg:col-span-2">
-          {/* Regular season */}
           <h2 className="mb-3 font-heading text-lg font-bold text-text">
             REGULAR SEASON ({regularGames.length} games)
           </h2>
-          <div className="mb-6 overflow-x-auto rounded-lg border border-border">
-            <GameTable games={regularGames} />
+          <div className="mb-6 rounded-lg border border-border">
+            <SeasonGameTable data={regularGames} />
           </div>
 
-          {/* Playoffs */}
           {playoffGames.length > 0 && (
             <>
               <h2 className="mb-3 font-heading text-lg font-bold text-text">
                 PLAYOFFS
               </h2>
-              <div className="mb-6 overflow-x-auto rounded-lg border border-border">
-                <GameTable games={playoffGames} />
+              <div className="mb-6 rounded-lg border border-border">
+                <SeasonGameTable data={playoffGames} />
               </div>
             </>
           )}
 
-          {/* Preseason */}
           {preseasonGames.length > 0 && (
             <>
               <h2 className="mb-3 font-heading text-lg font-bold text-text">
                 PRESEASON
               </h2>
-              <div className="overflow-x-auto rounded-lg border border-border">
-                <GameTable games={preseasonGames} />
+              <div className="rounded-lg border border-border">
+                <SeasonGameTable data={preseasonGames} />
               </div>
             </>
           )}
@@ -114,59 +113,6 @@ export default async function SeasonDetailPage({
         </div>
       </div>
     </div>
-  );
-}
-
-function GameTable({ games }: { games: { game_id: string; game_date: string; opponent: string; home_away: string; saints_score: number | null; opponent_score: number | null; result: string | null }[] }) {
-  return (
-    <table className="w-full font-mono text-sm">
-      <thead>
-        <tr className="border-b border-border text-dim">
-          <th className="px-3 py-2 text-left font-medium">Date</th>
-          <th className="px-3 py-2 text-center font-medium"></th>
-          <th className="px-3 py-2 text-left font-medium">Opponent</th>
-          <th className="px-3 py-2 text-right font-medium">Score</th>
-          <th className="px-3 py-2 text-center font-medium">W/L</th>
-        </tr>
-      </thead>
-      <tbody>
-        {games.map((g) => (
-          <tr
-            key={g.game_id}
-            className="border-b border-border/50 transition-colors hover:bg-panel"
-          >
-            <td className="px-3 py-2 text-dim">{g.game_date}</td>
-            <td className="px-3 py-2 text-center text-dim">
-              {g.home_away === "home" ? "vs" : "@"}
-            </td>
-            <td className="px-3 py-2">
-              <Link
-                href={`/games/${g.game_id}`}
-                className="text-text hover:text-gold hover:underline"
-              >
-                {g.opponent}
-              </Link>
-            </td>
-            <td className="px-3 py-2 text-right text-text">
-              {g.saints_score}–{g.opponent_score}
-            </td>
-            <td className="px-3 py-2 text-center">
-              <span
-                className={
-                  g.result === "W"
-                    ? "text-rush"
-                    : g.result === "L"
-                      ? "text-rec"
-                      : "text-dim"
-                }
-              >
-                {g.result}
-              </span>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 

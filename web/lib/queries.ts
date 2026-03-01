@@ -34,6 +34,14 @@ export interface Player {
   player_id: string;
   player_name: string;
   pfa_url: string | null;
+  position: string | null;
+  college: string | null;
+  height: string | null;
+  weight: number | null;
+  birth_date: string | null;
+  fdb_id: string | null;
+  fdb_url: string | null;
+  seasons_text: string | null;
 }
 
 export interface TeamGameStats {
@@ -365,7 +373,7 @@ export async function getGameInterceptions(gameId: string): Promise<Interception
 
 export async function searchPlayers(q: string, limit = 50) {
   return query(`
-    SELECT DISTINCT p.player_id, p.player_name,
+    SELECT DISTINCT p.player_id, p.player_name, p.position,
       (SELECT MIN(g.season) FROM player_passing pp JOIN games g ON pp.game_id = g.game_id WHERE pp.player_id = p.player_id AND (pp.team LIKE '%Saints%' OR pp.team LIKE '%New Orleans%')
        UNION ALL
        SELECT MIN(g.season) FROM player_rushing pr JOIN games g ON pr.game_id = g.game_id WHERE pr.player_id = p.player_id AND (pr.team LIKE '%Saints%' OR pr.team LIKE '%New Orleans%')
@@ -389,7 +397,7 @@ export async function searchPlayers(q: string, limit = 50) {
 
 export async function getPlayersWithStats(limit = 100, offset = 0) {
   return query(`
-    SELECT p.player_id, p.player_name,
+    SELECT p.player_id, p.player_name, p.position,
       COALESCE(pass.yds, 0) as pass_yds,
       COALESCE(pass.td, 0) as pass_td,
       COALESCE(rush.yds, 0) as rush_yds,
@@ -424,6 +432,16 @@ export async function getPlayersWithStats(limit = 100, offset = 0) {
 
 export async function getPlayer(id: string) {
   return queryOne<Player>(`SELECT * FROM players WHERE player_id = ?`, [id]);
+}
+
+export async function getPlayerDraftInfo(playerId: string) {
+  return queryOne<DraftPick>(`
+    SELECT d.*
+    FROM draft_picks d
+    WHERE d.player_id = ?
+       OR LOWER(d.player_name) = (SELECT LOWER(player_name) FROM players WHERE player_id = ?)
+    LIMIT 1
+  `, [playerId, playerId]);
 }
 
 export async function getPlayerCareerPassing(playerId: string) {
@@ -531,6 +549,7 @@ export async function getPlayerGameLog(playerId: string, season?: number) {
     LEFT JOIN player_receiving rec ON rec.game_id = g.game_id AND rec.player_id = ?
       AND (rec.team LIKE '%Saints%' OR rec.team LIKE '%New Orleans%')
     WHERE (pp.player_id IS NOT NULL OR pr.player_id IS NOT NULL OR rec.player_id IS NOT NULL)
+      AND g.game_type != 'preseason'
       ${whereClause}
     ORDER BY g.game_date DESC
   `, args);
@@ -681,6 +700,134 @@ export async function getSeasonReceivingRecords(limit = 25) {
   `, [limit]);
 }
 
+// ── Defensive leaders ─────────────────────────────────
+// Defense data spans three tables with different date ranges:
+//   player_defense (tackles etc): 1999-present
+//   player_sacks: 1973-present
+//   player_interceptions: 1967-present
+// We UNION all player IDs from all three tables so older legends appear.
+
+export async function getCareerDefensiveLeaders(limit = 25) {
+  return query(`
+    SELECT p.player_id, p.player_name,
+      COALESCE(def.tkl, 0) as tkl, COALESCE(def.tfl, 0) as tfl,
+      COALESCE(def.qh, 0) as qh, COALESCE(def.pd_count, 0) as pd_count,
+      COALESCE(def.ff, 0) as ff,
+      COALESCE(sk.sacks, 0) as sacks,
+      COALESCE(it.int_count, 0) as int_count,
+      COALESCE(def.games, 0) + COALESCE(sk.games, 0) + COALESCE(it.games, 0) as games
+    FROM (
+      SELECT player_id FROM player_defense WHERE team LIKE '%Saints%' OR team LIKE '%New Orleans%'
+      UNION
+      SELECT player_id FROM player_sacks WHERE team LIKE '%Saints%' OR team LIKE '%New Orleans%'
+      UNION
+      SELECT player_id FROM player_interceptions WHERE team LIKE '%Saints%' OR team LIKE '%New Orleans%'
+    ) all_def
+    JOIN players p ON all_def.player_id = p.player_id
+    LEFT JOIN (
+      SELECT pd.player_id, SUM(pd.tkl) as tkl, SUM(pd.tfl) as tfl,
+        SUM(pd.qh) as qh, SUM(pd.pd) as pd_count, SUM(pd.ff) as ff,
+        COUNT(DISTINCT pd.game_id) as games
+      FROM player_defense pd
+      JOIN games g ON pd.game_id = g.game_id
+      WHERE (pd.team LIKE '%Saints%' OR pd.team LIKE '%New Orleans%') AND g.game_type = 'regular'
+      GROUP BY pd.player_id
+    ) def ON def.player_id = all_def.player_id
+    LEFT JOIN (
+      SELECT ps.player_id, SUM(ps.sacks) as sacks, COUNT(DISTINCT ps.game_id) as games
+      FROM player_sacks ps
+      JOIN games g ON ps.game_id = g.game_id
+      WHERE (ps.team LIKE '%Saints%' OR ps.team LIKE '%New Orleans%') AND g.game_type = 'regular'
+      GROUP BY ps.player_id
+    ) sk ON sk.player_id = all_def.player_id
+    LEFT JOIN (
+      SELECT pi.player_id, SUM(pi.int_count) as int_count, COUNT(DISTINCT pi.game_id) as games
+      FROM player_interceptions pi
+      JOIN games g ON pi.game_id = g.game_id
+      WHERE (pi.team LIKE '%Saints%' OR pi.team LIKE '%New Orleans%') AND g.game_type = 'regular'
+      GROUP BY pi.player_id
+    ) it ON it.player_id = all_def.player_id
+    ORDER BY sacks DESC
+    LIMIT ?
+  `, [limit]);
+}
+
+export async function getSeasonDefensiveRecords(limit = 25) {
+  return query(`
+    SELECT p.player_id, p.player_name, season,
+      COALESCE(tkl, 0) as tkl, COALESCE(tfl, 0) as tfl,
+      COALESCE(qh, 0) as qh, COALESCE(pd_count, 0) as pd_count,
+      COALESCE(ff, 0) as ff,
+      COALESCE(sacks, 0) as sacks,
+      COALESCE(int_count, 0) as int_count,
+      games
+    FROM (
+      SELECT pd.player_id, g.season,
+        SUM(pd.tkl) as tkl, SUM(pd.tfl) as tfl, SUM(pd.qh) as qh,
+        SUM(pd.pd) as pd_count, SUM(pd.ff) as ff,
+        0 as sacks, 0 as int_count,
+        COUNT(DISTINCT pd.game_id) as games
+      FROM player_defense pd
+      JOIN games g ON pd.game_id = g.game_id
+      WHERE (pd.team LIKE '%Saints%' OR pd.team LIKE '%New Orleans%') AND g.game_type = 'regular'
+      GROUP BY pd.player_id, g.season
+
+      UNION ALL
+
+      SELECT ps.player_id, g.season,
+        0 as tkl, 0 as tfl, 0 as qh, 0 as pd_count, 0 as ff,
+        SUM(ps.sacks) as sacks, 0 as int_count,
+        COUNT(DISTINCT ps.game_id) as games
+      FROM player_sacks ps
+      JOIN games g ON ps.game_id = g.game_id
+      WHERE (ps.team LIKE '%Saints%' OR ps.team LIKE '%New Orleans%') AND g.game_type = 'regular'
+      GROUP BY ps.player_id, g.season
+
+      UNION ALL
+
+      SELECT pi.player_id, g.season,
+        0 as tkl, 0 as tfl, 0 as qh, 0 as pd_count, 0 as ff,
+        0 as sacks, SUM(pi.int_count) as int_count,
+        COUNT(DISTINCT pi.game_id) as games
+      FROM player_interceptions pi
+      JOIN games g ON pi.game_id = g.game_id
+      WHERE (pi.team LIKE '%Saints%' OR pi.team LIKE '%New Orleans%') AND g.game_type = 'regular'
+      GROUP BY pi.player_id, g.season
+    ) combined
+    JOIN players p ON combined.player_id = p.player_id
+    GROUP BY combined.player_id, season
+    ORDER BY sacks DESC
+    LIMIT ?
+  `, [limit]);
+}
+
+export async function getSingleGameDefensiveLeaders(limit = 25) {
+  return query(`
+    SELECT p.player_id, p.player_name,
+      COALESCE(pd.tkl, 0) as tkl, COALESCE(pd.tfl, 0) as tfl,
+      COALESCE(pd.qh, 0) as qh, COALESCE(pd.pd, 0) as pd_count,
+      COALESCE(pd.ff, 0) as ff,
+      COALESCE(sk.sacks, 0) as sacks,
+      COALESCE(it.int_count, 0) as int_count,
+      g.game_date, g.opponent, g.season
+    FROM (
+      SELECT game_id, player_id FROM player_defense WHERE team LIKE '%Saints%' OR team LIKE '%New Orleans%'
+      UNION
+      SELECT game_id, player_id FROM player_sacks WHERE team LIKE '%Saints%' OR team LIKE '%New Orleans%'
+      UNION
+      SELECT game_id, player_id FROM player_interceptions WHERE team LIKE '%Saints%' OR team LIKE '%New Orleans%'
+    ) all_gp
+    JOIN players p ON all_gp.player_id = p.player_id
+    JOIN games g ON all_gp.game_id = g.game_id
+    LEFT JOIN player_defense pd ON pd.player_id = all_gp.player_id AND pd.game_id = all_gp.game_id
+    LEFT JOIN player_sacks sk ON sk.player_id = all_gp.player_id AND sk.game_id = all_gp.game_id
+    LEFT JOIN player_interceptions it ON it.player_id = all_gp.player_id AND it.game_id = all_gp.game_id
+    WHERE g.game_type = 'regular'
+    ORDER BY sacks DESC, it.int_count DESC
+    LIMIT ?
+  `, [limit]);
+}
+
 // ── Recent games ───────────────────────────────────────
 
 export async function getRecentGames(limit = 10): Promise<Game[]> {
@@ -688,6 +835,51 @@ export async function getRecentGames(limit = 10): Promise<Game[]> {
     `SELECT * FROM games WHERE game_type = 'regular' ORDER BY game_date DESC LIMIT ?`,
     [limit]
   );
+}
+
+// ── Draft ─────────────────────────────────────────────
+
+export interface DraftPick {
+  season: number;
+  round: number;
+  pick: number;
+  player_name: string;
+  player_id: string | null;
+  position: string | null;
+  college: string | null;
+}
+
+export interface DraftSummary {
+  season: number;
+  picks: number;
+  first_pick: number;
+  first_player: string;
+}
+
+export async function getDraftYears(): Promise<DraftSummary[]> {
+  return query<DraftSummary>(`
+    SELECT
+      season,
+      COUNT(*) as picks,
+      MIN(pick) as first_pick,
+      (SELECT player_name FROM draft_picks d2 WHERE d2.season = d.season ORDER BY pick LIMIT 1) as first_player
+    FROM draft_picks d
+    GROUP BY season
+    ORDER BY season DESC
+  `);
+}
+
+export async function getDraftByYear(year: number): Promise<(DraftPick & { linked_player_id: string | null })[]> {
+  return query<DraftPick & { linked_player_id: string | null }>(`
+    SELECT d.*,
+      COALESCE(
+        (SELECT p.player_id FROM players p WHERE p.player_id = d.player_id LIMIT 1),
+        (SELECT p.player_id FROM players p WHERE LOWER(p.player_name) = LOWER(d.player_name) LIMIT 1)
+      ) as linked_player_id
+    FROM draft_picks d
+    WHERE d.season = ?
+    ORDER BY d.round, d.pick
+  `, [year]);
 }
 
 export async function getRecentSeasons(limit = 3): Promise<SeasonSummary[]> {

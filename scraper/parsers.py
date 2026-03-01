@@ -509,7 +509,7 @@ def _parse_scoring_plays(table, game_id: str, teams: tuple) -> list[dict]:
 
         qtr_text = _text(cells[0])
         team_text = _text(cells[1])
-        description = _text(cells[2])
+        description = cells[2].get_text(separator=" ", strip=True)
         away_score = _safe_int(_text(cells[3]))
         home_score = _safe_int(_text(cells[4]))
 
