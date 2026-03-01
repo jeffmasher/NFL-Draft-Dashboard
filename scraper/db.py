@@ -220,11 +220,12 @@ def init_db(path: str) -> sqlite3.Connection:
         except sqlite3.OperationalError:
             pass  # column already exists
 
-    # Add jersey_number to player_participation (idempotent)
-    try:
-        conn.execute("ALTER TABLE player_participation ADD COLUMN jersey_number TEXT")
-    except sqlite3.OperationalError:
-        pass
+    # Add jersey_number and position to player_participation (idempotent)
+    for col in [("jersey_number", "TEXT"), ("position", "TEXT")]:
+        try:
+            conn.execute(f"ALTER TABLE player_participation ADD COLUMN {col[0]} {col[1]}")
+        except sqlite3.OperationalError:
+            pass
 
     conn.commit()
     return conn
@@ -266,9 +267,9 @@ def upsert_participation(conn: sqlite3.Connection, player_id: str, rows: list) -
     """Insert or replace participation rows for a player."""
     for row in rows:
         conn.execute(
-            "INSERT OR REPLACE INTO player_participation (player_id, season, gp, gs, jersey_number) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (player_id, row["season"], row.get("gp", 0), row.get("gs", 0), row.get("jersey")),
+            "INSERT OR REPLACE INTO player_participation (player_id, season, gp, gs, jersey_number, position) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (player_id, row["season"], row.get("gp", 0), row.get("gs", 0), row.get("jersey"), row.get("position")),
         )
 
 

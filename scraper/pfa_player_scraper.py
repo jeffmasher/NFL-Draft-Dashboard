@@ -84,28 +84,39 @@ def _parse_float(text):
         return None
 
 
+def _is_game_log_page(soup):
+    """Return True if this is a PFA game-log page rather than a career stats page."""
+    title = soup.find("title")
+    if title and "Game Log" in title.get_text():
+        return True
+    # Also check for an h1/h2 with "Game Log"
+    for tag in soup.find_all(["h1", "h2"]):
+        if "Game Log" in tag.get_text():
+            return True
+    return False
+
+
 def parse_player_page(html):
     """
     Parse a PFA player page and extract bio, participation, and career defensive stats.
 
-    Returns a dict:
-    {
-      "height": "6-7",
-      "weight": 245,
-      "birth_date": "March 26, 1951",
-      "birth_city": "Chicago, IL",
-      "college": "Purdue",
-      "position": "DE",
-      "draft_round": 2,
-      "draft_pick": 51,
-      "draft_year": 1973,
-      "participation": [{"season": 1973, "gp": 14, "gs": 0, "jersey": "63", "position": "DE"}, ...],
-      "sacks_by_season": [{"season": 1973, "sacks": 1.0, "yds": None}, ...],
-      "fumbles_by_season": [{"season": 1974, "opp_rec": 1, "opp_yds": 0, "td": 0}, ...],
-    }
+    PFA has two page formats:
+    - "Pro Football Stats" pages: bio header + season-level GP/GS table + career stat tables
+    - "NFL Game Logs" pages: individual game rows only, no bio
+
+    Returns a dict with any fields that could be extracted.
     """
     soup = BeautifulSoup(html, "lxml")
     result = {}
+
+    if _is_game_log_page(soup):
+        # Game log pages have no bio — extract GP by counting Saints game rows per season
+        result["participation"] = _parse_game_log_participation(soup)
+        if result["participation"]:
+            result["position"] = result["participation"][-1].get("position") or result["participation"][0].get("position")
+        result["sacks_by_season"] = []
+        result["fumbles_by_season"] = []
+        return result
 
     # ── Bio fields ────────────────────────────────────────────────────────────
     # PFA pages typically list bio info in a table or paragraph near the top.
@@ -131,9 +142,12 @@ def parse_player_page(html):
     if born_match:
         result["birth_date"] = born_match.group(1)
 
+    # City follows immediately after the date: "Born: September 20, 1935 Baton Rouge, LA"
+    # Match "City, ST" pattern specifically; stops before Died/High School/end
     born_city_match = re.search(
-        r'Born[^<\n]+(?:January|February|March|April|May|June|July|August|September|October|November|December)'
-        r'\s+\d{1,2},\s+\d{4}\s+in\s+([^<\n]+?)(?:\s{2,}|\||\n|$)',
+        r'Born:\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)'
+        r'\s+\d{1,2},\s+\d{4}\s+([A-Za-z][A-Za-z\s\.]+,\s+[A-Z]{2})'
+        r'(?=\s|$)',
         full_text,
     )
     if born_city_match:
@@ -166,12 +180,51 @@ def parse_player_page(html):
         result["position"] = participation[-1].get("position") or participation[0].get("position")
 
     # ── Career sacks table ────────────────────────────────────────────────────
-    result["sacks_by_season"] = _parse_career_table(soup, "SACKS", ["season", "sacks", "yds"])
+    result["sacks_by_season"] = _parse_career_sacks(soup)
 
     # ── Career fumbles table ──────────────────────────────────────────────────
-    result["fumbles_by_season"] = _parse_career_table(soup, "FUMBLES", ["season", "opp_rec", "opp_yds", "td"])
+    result["fumbles_by_season"] = _parse_career_fumbles(soup)
 
     return result
+
+
+def _parse_game_log_participation(soup):
+    """
+    For game-log format pages, count unique game dates per season for Saints rows.
+    Returns list of dicts: [{season, gp, gs, jersey, position}, ...]
+    """
+    from collections import defaultdict
+    games_by_season = defaultdict(set)
+
+    for table in soup.find_all("table"):
+        for tr in table.find_all("tr"):
+            cells = tr.find_all("td")
+            if len(cells) < 4:
+                continue
+            # First cell should be a date (MM/DD/YYYY)
+            date_text = cells[0].get_text(strip=True)
+            if not re.match(r'\d{1,2}/\d{1,2}/\d{4}', date_text):
+                continue
+            # Second cell should contain the team name
+            team_text = cells[1].get_text(strip=True) if len(cells) > 1 else ""
+            if "New Orleans Saints" not in team_text and "NO NFL" not in team_text:
+                continue
+            year_match = re.match(r'(\d{4})', team_text)
+            if not year_match:
+                continue
+            season = int(year_match.group(1))
+            games_by_season[season].add(date_text)
+
+    rows = []
+    for season in sorted(games_by_season):
+        rows.append({
+            "season": season,
+            "gp": len(games_by_season[season]),
+            "gs": 0,
+            "jersey": None,
+            "position": None,
+        })
+    return rows
 
 
 def _parse_college(soup):
@@ -284,55 +337,69 @@ def _parse_participation(soup):
     return rows
 
 
-def _parse_career_table(soup, section_keyword, field_names):
-    """
-    Generic parser for career stat tables (SACKS, FUMBLES) that list Saints rows.
+def _find_table_by_header(soup, keyword):
+    """Find a table whose first <th> cell matches keyword (case-insensitive)."""
+    for table in soup.find_all("table"):
+        ths = table.find_all("th")
+        if ths and ths[0].get_text(strip=True).upper() == keyword.upper():
+            return table
+    return None
 
-    section_keyword: string to find the section heading (e.g. "SACKS")
-    field_names: list of keys for the data columns (not counting year/team col)
-    Returns list of dicts with "season" plus the named fields.
-    """
-    # Find section heading
-    section = None
-    for tag in soup.find_all(["h2", "h3", "b", "strong", "caption"]):
-        if section_keyword.lower() in tag.get_text(strip=True).lower():
-            section = tag
-            break
 
-    if not section:
-        return []
+def _header_col(headers, *names):
+    """Return the index of the first header matching any of the given names."""
+    for name in names:
+        for i, h in enumerate(headers):
+            if h.upper() == name.upper():
+                return i
+    return None
 
-    table = section.find_next("table")
-    if not table:
-        return []
 
-    rows = []
+def _saints_rows(table):
+    """Yield (season, cells) for Saints rows in a stat table."""
     for tr in table.find_all("tr"):
         cells = tr.find_all("td")
-        if len(cells) < 2:
+        if not cells:
             continue
-
-        year_team_text = cells[0].get_text(strip=True)
-        if "New Orleans Saints" not in year_team_text and "NO NFL" not in year_team_text:
+        year_team = cells[0].get_text(strip=True)
+        if "New Orleans Saints" not in year_team and "NO NFL" not in year_team:
             continue
-
-        year_match = re.match(r"(\d{4})", year_team_text)
-        if not year_match:
+        m = re.match(r"(\d{4})", year_team)
+        if not m:
             continue
-        season = int(year_match.group(1))
+        yield int(m.group(1)), cells
 
-        row = {"season": season}
-        for i, field in enumerate(field_names):
-            if field == "season":
-                continue
-            cell_idx = i + 1  # offset by 1 because col 0 is year/team
-            raw = cells[cell_idx].get_text(strip=True) if cell_idx < len(cells) else ""
-            if field == "sacks":
-                row[field] = _parse_float(raw)
-            else:
-                row[field] = _parse_int(raw)
-        rows.append(row)
 
+def _parse_career_sacks(soup):
+    """Parse season-level sacks from the SACKS table on a stats page."""
+    table = _find_table_by_header(soup, "SACKS")
+    if not table:
+        return []
+    headers = [th.get_text(strip=True).upper() for th in table.find_all("th")]
+    no_idx = _header_col(headers, "NO")
+    yds_idx = _header_col(headers, "YDS")
+    rows = []
+    for season, cells in _saints_rows(table):
+        def cv(idx):
+            return cells[idx].get_text(strip=True) if idx is not None and idx < len(cells) else ""
+        rows.append({"season": season, "sacks": _parse_float(cv(no_idx)), "yds": _parse_int(cv(yds_idx))})
+    return rows
+
+
+def _parse_career_fumbles(soup):
+    """Parse season-level fumbles from the FUMBLES table on a stats page."""
+    table = _find_table_by_header(soup, "FUMBLES")
+    if not table:
+        return []
+    headers = [th.get_text(strip=True).upper() for th in table.find_all("th")]
+    opp_idx = _header_col(headers, "OPP")
+    yds_idx = _header_col(headers, "YDS")
+    td_idx = _header_col(headers, "TD")
+    rows = []
+    for season, cells in _saints_rows(table):
+        def cv(idx):
+            return cells[idx].get_text(strip=True) if idx is not None and idx < len(cells) else ""
+        rows.append({"season": season, "opp_rec": _parse_int(cv(opp_idx)), "opp_yds": _parse_int(cv(yds_idx)), "td": _parse_int(cv(td_idx))})
     return rows
 
 
