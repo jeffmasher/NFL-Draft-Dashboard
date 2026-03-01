@@ -11,6 +11,7 @@ const links = [
   { href: "/draft", label: "Draft" },
   { href: "/stats", label: "Stats" },
   { href: "/ask", label: "Ask AI" },
+  { href: "/about", label: "About" },
 ];
 
 export function Nav() {

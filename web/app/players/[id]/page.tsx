@@ -7,16 +7,21 @@ import {
   getPlayerCareerPassing,
   getPlayerCareerRushing,
   getPlayerCareerReceiving,
+  getPlayerCareerDefense,
   getPlayerSeasonStats,
   getPlayerSeasonRushing,
   getPlayerSeasonReceiving,
+  getPlayerSeasonDefense,
   getPlayerGameLog,
   getPlayerDraftInfo,
+  getPlayerGamesPlayedByYear,
 } from "@/lib/queries";
 import {
   SeasonPassingTable,
   SeasonRushingTable,
   SeasonReceivingTable,
+  SeasonDefenseTable,
+  GamesPlayedTable,
   PlayerGameLogTable,
 } from "@/components/player-profile-tables";
 
@@ -40,30 +45,41 @@ export default async function PlayerProfilePage({
     careerPassing,
     careerRushing,
     careerReceiving,
+    careerDefense,
     rawSeasonPassing,
     rawSeasonRushing,
     rawSeasonReceiving,
+    rawSeasonDefense,
     rawGameLog,
     draftInfo,
+    rawGamesPlayed,
   ] = await Promise.all([
     getPlayerCareerPassing(id),
     getPlayerCareerRushing(id),
     getPlayerCareerReceiving(id),
+    getPlayerCareerDefense(id),
     getPlayerSeasonStats(id),
     getPlayerSeasonRushing(id),
     getPlayerSeasonReceiving(id),
+    getPlayerSeasonDefense(id),
     getPlayerGameLog(id),
     getPlayerDraftInfo(id),
+    getPlayerGamesPlayedByYear(id),
   ]);
 
   const hasPassing = careerPassing && Number(careerPassing.att) > 0;
   const hasRushing = careerRushing && Number(careerRushing.att) > 0;
   const hasReceiving = careerReceiving && Number(careerReceiving.rec) > 0;
+  const hasDefense = careerDefense && (Number(careerDefense.tkl) > 0 || Number(careerDefense.sacks) > 0 || Number(careerDefense.int_count) > 0);
 
   const seasonPassing = JSON.parse(JSON.stringify(rawSeasonPassing));
   const seasonRushing = JSON.parse(JSON.stringify(rawSeasonRushing));
   const seasonReceiving = JSON.parse(JSON.stringify(rawSeasonReceiving));
+  const seasonDefense = JSON.parse(JSON.stringify(rawSeasonDefense));
   const gameLog = JSON.parse(JSON.stringify(rawGameLog));
+  const gamesPlayed = JSON.parse(JSON.stringify(rawGamesPlayed));
+
+  const hasAnyStats = hasPassing || hasRushing || hasReceiving || hasDefense;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -78,11 +94,11 @@ export default async function PlayerProfilePage({
         <h1 className="font-heading text-4xl font-bold text-gold">
           {player.player_name.toUpperCase()}
         </h1>
-        {(hasPassing || hasRushing || hasReceiving) && (
+        {(hasPassing || hasRushing || hasReceiving || hasDefense) && (
           <p className="mt-1 font-mono text-sm text-dim">
-            {hasPassing ? `${careerPassing!.first_season}` : hasRushing ? `${careerRushing!.first_season}` : `${careerReceiving!.first_season}`}
+            {hasPassing ? `${careerPassing!.first_season}` : hasRushing ? `${careerRushing!.first_season}` : hasReceiving ? `${careerReceiving!.first_season}` : `${careerDefense!.first_season}`}
             –
-            {hasPassing ? `${careerPassing!.last_season}` : hasRushing ? `${careerRushing!.last_season}` : `${careerReceiving!.last_season}`}
+            {hasPassing ? `${careerPassing!.last_season}` : hasRushing ? `${careerRushing!.last_season}` : hasReceiving ? `${careerReceiving!.last_season}` : `${careerDefense!.last_season}`}
           </p>
         )}
       </div>
@@ -134,7 +150,7 @@ export default async function PlayerProfilePage({
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {hasPassing && (
           <CareerCard
-            title="CAREER PASSING"
+            title="SAINTS CAREER PASSING"
             color="pass"
             stats={[
               { label: "Games", value: careerPassing.games },
@@ -148,7 +164,7 @@ export default async function PlayerProfilePage({
         )}
         {hasRushing && (
           <CareerCard
-            title="CAREER RUSHING"
+            title="SAINTS CAREER RUSHING"
             color="rush"
             stats={[
               { label: "Games", value: careerRushing.games },
@@ -160,13 +176,27 @@ export default async function PlayerProfilePage({
         )}
         {hasReceiving && (
           <CareerCard
-            title="CAREER RECEIVING"
+            title="SAINTS CAREER RECEIVING"
             color="rec"
             stats={[
               { label: "Games", value: careerReceiving.games },
               { label: "Rec", value: Number(careerReceiving.rec).toLocaleString() },
               { label: "Yards", value: Number(careerReceiving.yds).toLocaleString() },
               { label: "TD", value: careerReceiving.td },
+            ]}
+          />
+        )}
+        {hasDefense && (
+          <CareerCard
+            title="SAINTS CAREER DEFENSE"
+            color="def"
+            stats={[
+              { label: "Games", value: careerDefense.games },
+              { label: "Tkl", value: careerDefense.tkl },
+              { label: "Sacks", value: Number(careerDefense.sacks).toFixed(1) },
+              { label: "INT", value: careerDefense.int_count },
+              { label: "FF", value: careerDefense.ff },
+              { label: "PD", value: careerDefense.pd_count },
             ]}
           />
         )}
@@ -206,6 +236,28 @@ export default async function PlayerProfilePage({
         </div>
       )}
 
+      {hasDefense && seasonDefense.length > 0 && (
+        <div className="mb-6">
+          <h2 className="mb-3 font-heading text-lg font-bold text-gold">
+            DEFENSE BY SEASON
+          </h2>
+          <div className="rounded-lg border border-gold/30">
+            <SeasonDefenseTable data={seasonDefense} />
+          </div>
+        </div>
+      )}
+
+      {!hasAnyStats && gamesPlayed.length > 0 && (
+        <div className="mb-6">
+          <h2 className="mb-3 font-heading text-lg font-bold text-text">
+            GAMES PLAYED BY SEASON
+          </h2>
+          <div className="rounded-lg border border-border">
+            <GamesPlayedTable data={gamesPlayed} />
+          </div>
+        </div>
+      )}
+
       {/* Game Log */}
       {gameLog.length > 0 && (
         <div className="mt-8">
@@ -240,9 +292,11 @@ function CareerCard({
       ? "border-pass/30"
       : color === "rush"
         ? "border-rush/30"
-        : "border-rec/30";
+        : color === "def"
+          ? "border-gold/30"
+          : "border-rec/30";
   const textColor =
-    color === "pass" ? "text-pass" : color === "rush" ? "text-rush" : "text-rec";
+    color === "pass" ? "text-pass" : color === "rush" ? "text-rush" : color === "def" ? "text-gold" : "text-rec";
 
   return (
     <div className={`rounded-lg border ${borderColor} bg-smoke p-4`}>

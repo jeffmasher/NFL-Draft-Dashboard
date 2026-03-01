@@ -9,6 +9,7 @@ export function SeasonPassingTable({ data }: { data: Record<string, unknown>[] }
       data={data}
       defaultSort="season"
       defaultAsc={true}
+      title="season-passing"
       columns={[
         { key: "season", label: "Season", align: "left" },
         { key: "pass_games", label: "GP", align: "right" },
@@ -33,6 +34,7 @@ export function SeasonRushingTable({ data }: { data: Record<string, unknown>[] }
       data={data}
       defaultSort="season"
       defaultAsc={true}
+      title="season-rushing"
       columns={[
         { key: "season", label: "Season", align: "left" },
         { key: "rush_games", label: "GP", align: "right" },
@@ -55,6 +57,7 @@ export function SeasonReceivingTable({ data }: { data: Record<string, unknown>[]
       data={data}
       defaultSort="season"
       defaultAsc={true}
+      title="season-receiving"
       columns={[
         { key: "season", label: "Season", align: "left" },
         { key: "rec_games", label: "GP", align: "right" },
@@ -66,6 +69,43 @@ export function SeasonReceivingTable({ data }: { data: Record<string, unknown>[]
           render: (r) => Number(r.rec_yds).toLocaleString(),
         },
         { key: "rec_td", label: "TD", align: "right" },
+      ]}
+    />
+  );
+}
+
+export function SeasonDefenseTable({ data }: { data: Record<string, unknown>[] }) {
+  return (
+    <StatTable
+      data={data}
+      defaultSort="season"
+      defaultAsc={true}
+      title="season-defense"
+      columns={[
+        { key: "season", label: "Season", align: "left" },
+        { key: "games", label: "GP", align: "right" },
+        { key: "tkl", label: "Tkl", align: "right" },
+        { key: "tfl", label: "TFL", align: "right" },
+        { key: "sacks", label: "Sacks", align: "right", render: (r) => r.sacks != null ? Number(r.sacks).toFixed(1) : "-" },
+        { key: "int_count", label: "INT", align: "right" },
+        { key: "qh", label: "QH", align: "right" },
+        { key: "pd_count", label: "PD", align: "right" },
+        { key: "ff", label: "FF", align: "right" },
+      ]}
+    />
+  );
+}
+
+export function GamesPlayedTable({ data }: { data: Record<string, unknown>[] }) {
+  return (
+    <StatTable
+      data={data}
+      defaultSort="season"
+      defaultAsc={true}
+      title="games-played"
+      columns={[
+        { key: "season", label: "Season", align: "left" },
+        { key: "games", label: "Games", align: "right" },
       ]}
     />
   );
@@ -86,6 +126,7 @@ export function PlayerGameLogTable({
     <StatTable
       data={data}
       defaultSort="game_date"
+      title="game-log"
       columns={[
         {
           key: "game_date",

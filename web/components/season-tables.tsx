@@ -9,6 +9,7 @@ export function SeasonGameTable({ data }: { data: Record<string, unknown>[] }) {
       data={data}
       defaultSort="game_date"
       defaultAsc={true}
+      title="game-log"
       columns={[
         {
           key: "game_date",

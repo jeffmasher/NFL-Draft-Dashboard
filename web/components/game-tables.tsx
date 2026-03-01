@@ -14,6 +14,7 @@ export function GamePassingTable({
     <StatTable
       data={data}
       defaultSort="yds"
+      title="passing"
       columns={[
         {
           key: "player_name",
@@ -63,6 +64,7 @@ export function GameRushingTable({
     <StatTable
       data={data}
       defaultSort="yds"
+      title="rushing"
       columns={[
         {
           key: "player_name",
@@ -107,6 +109,7 @@ export function GameReceivingTable({
     <StatTable
       data={data}
       defaultSort="yds"
+      title="receiving"
       columns={[
         {
           key: "player_name",

@@ -8,6 +8,7 @@ export function PlayersStatsTable({ data }: { data: Record<string, unknown>[] })
     <StatTable
       data={data}
       defaultSort="pass_yds"
+      title="players-stats"
       columns={[
         {
           key: "player_name",
@@ -95,6 +96,7 @@ export function PlayersSearchTable({ data }: { data: Record<string, unknown>[] }
       data={data}
       defaultSort="player_name"
       defaultAsc={true}
+      title="players-search"
       columns={[
         {
           key: "player_name",
