@@ -16,12 +16,16 @@ import {
   getSingleGameDefensiveLeaders,
 } from "@/lib/queries";
 
+const VALID_GAME_TYPES = new Set(["regular", "playoff", "preseason"]);
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const scope = searchParams.get("scope") ?? "career";
   const category = searchParams.get("category") ?? "passing";
+  const rawGameType = searchParams.get("gameType") ?? "regular";
+  const gameType = VALID_GAME_TYPES.has(rawGameType) ? rawGameType : "regular";
 
-  const fetchers: Record<string, Record<string, (limit?: number) => Promise<unknown[]>>> = {
+  const fetchers: Record<string, Record<string, (limit?: number, gameType?: string) => Promise<unknown[]>>> = {
     career: {
       passing: getCareerPassingLeaders,
       rushing: getCareerRushingLeaders,
@@ -47,6 +51,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid scope or category" }, { status: 400 });
   }
 
-  const data = await fetcher(50);
+  const data = await fetcher(50, gameType);
   return NextResponse.json(data);
 }

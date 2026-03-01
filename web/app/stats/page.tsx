@@ -6,23 +6,25 @@ import { StatTable } from "@/components/stat-table";
 
 type Scope = "career" | "season" | "game";
 type Category = "passing" | "rushing" | "receiving" | "defense";
+type GameType = "regular" | "playoff" | "preseason";
 
 export default function StatsPage() {
   const [scope, setScope] = useState<Scope>("career");
   const [category, setCategory] = useState<Category>("passing");
+  const [gameType, setGameType] = useState<GameType>("regular");
   const [data, setData] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/leaders?scope=${scope}&category=${category}`)
+    fetch(`/api/leaders?scope=${scope}&category=${category}&gameType=${gameType}`)
       .then((r) => r.json())
       .then((d) => {
         setData(d);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [scope, category]);
+  }, [scope, category, gameType]);
 
   const columns = buildColumns(scope, category);
   const defaultSort = category === "defense" ? "tkl" : "yds";
@@ -46,6 +48,23 @@ export default function StatsPage() {
             }`}
           >
             {s === "game" ? "Single Game" : s}
+          </button>
+        ))}
+      </div>
+
+      {/* Game Type Tabs */}
+      <div className="mb-4 flex gap-2">
+        {([["regular", "Regular Season"], ["playoff", "Postseason"], ["preseason", "Preseason"]] as [GameType, string][]).map(([gt, label]) => (
+          <button
+            key={gt}
+            onClick={() => setGameType(gt)}
+            className={`rounded-md px-4 py-1.5 font-heading text-xs font-bold uppercase transition-colors ${
+              gameType === gt
+                ? "bg-gold/20 text-gold"
+                : "bg-panel text-dim hover:text-text"
+            }`}
+          >
+            {label}
           </button>
         ))}
       </div>

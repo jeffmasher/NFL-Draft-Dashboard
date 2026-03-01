@@ -653,7 +653,7 @@ export async function getPlayerGamesPlayedByYear(playerId: string) {
 
 // ── Leaderboards ───────────────────────────────────────
 
-export async function getCareerPassingLeaders(limit = 25) {
+export async function getCareerPassingLeaders(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name,
       SUM(pp.yds) as yds, SUM(pp.td) as td, SUM(pp.int_thrown) as int_thrown,
@@ -662,15 +662,15 @@ export async function getCareerPassingLeaders(limit = 25) {
     FROM player_passing pp
     JOIN players p ON pp.player_id = p.player_id
     JOIN games g ON pp.game_id = g.game_id
-    WHERE g.game_type = 'regular'
+    WHERE g.game_type = ?
       AND p.pfa_url IS NOT NULL
     GROUP BY pp.player_id
     ORDER BY yds DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, limit]);
 }
 
-export async function getCareerRushingLeaders(limit = 25) {
+export async function getCareerRushingLeaders(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name,
       SUM(pr.yds) as yds, SUM(pr.td) as td, SUM(pr.att) as att,
@@ -678,15 +678,15 @@ export async function getCareerRushingLeaders(limit = 25) {
     FROM player_rushing pr
     JOIN players p ON pr.player_id = p.player_id
     JOIN games g ON pr.game_id = g.game_id
-    WHERE g.game_type = 'regular'
+    WHERE g.game_type = ?
       AND p.pfa_url IS NOT NULL
     GROUP BY pr.player_id
     ORDER BY yds DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, limit]);
 }
 
-export async function getCareerReceivingLeaders(limit = 25) {
+export async function getCareerReceivingLeaders(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name,
       SUM(pr.yds) as yds, SUM(pr.td) as td, SUM(pr.rec) as rec,
@@ -694,15 +694,15 @@ export async function getCareerReceivingLeaders(limit = 25) {
     FROM player_receiving pr
     JOIN players p ON pr.player_id = p.player_id
     JOIN games g ON pr.game_id = g.game_id
-    WHERE g.game_type = 'regular'
+    WHERE g.game_type = ?
       AND p.pfa_url IS NOT NULL
     GROUP BY pr.player_id
     ORDER BY yds DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, limit]);
 }
 
-export async function getSingleGamePassingLeaders(limit = 25) {
+export async function getSingleGamePassingLeaders(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name,
       pp.yds, pp.td, pp.com, pp.att, pp.int_thrown, pp.rtg,
@@ -710,14 +710,14 @@ export async function getSingleGamePassingLeaders(limit = 25) {
     FROM player_passing pp
     JOIN players p ON pp.player_id = p.player_id
     JOIN games g ON pp.game_id = g.game_id
-    WHERE g.game_type = 'regular'
+    WHERE g.game_type = ?
       AND p.pfa_url IS NOT NULL
     ORDER BY pp.yds DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, limit]);
 }
 
-export async function getSingleGameRushingLeaders(limit = 25) {
+export async function getSingleGameRushingLeaders(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name,
       pr.yds, pr.td, pr.att,
@@ -725,14 +725,14 @@ export async function getSingleGameRushingLeaders(limit = 25) {
     FROM player_rushing pr
     JOIN players p ON pr.player_id = p.player_id
     JOIN games g ON pr.game_id = g.game_id
-    WHERE g.game_type = 'regular'
+    WHERE g.game_type = ?
       AND p.pfa_url IS NOT NULL
     ORDER BY pr.yds DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, limit]);
 }
 
-export async function getSingleGameReceivingLeaders(limit = 25) {
+export async function getSingleGameReceivingLeaders(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name,
       pr.yds, pr.td, pr.rec,
@@ -740,14 +740,14 @@ export async function getSingleGameReceivingLeaders(limit = 25) {
     FROM player_receiving pr
     JOIN players p ON pr.player_id = p.player_id
     JOIN games g ON pr.game_id = g.game_id
-    WHERE g.game_type = 'regular'
+    WHERE g.game_type = ?
       AND p.pfa_url IS NOT NULL
     ORDER BY pr.yds DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, limit]);
 }
 
-export async function getSeasonPassingRecords(limit = 25) {
+export async function getSeasonPassingRecords(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name, g.season,
       SUM(pp.yds) as yds, SUM(pp.td) as td, SUM(pp.int_thrown) as int_thrown,
@@ -756,15 +756,15 @@ export async function getSeasonPassingRecords(limit = 25) {
     FROM player_passing pp
     JOIN players p ON pp.player_id = p.player_id
     JOIN games g ON pp.game_id = g.game_id
-    WHERE g.game_type = 'regular'
+    WHERE g.game_type = ?
       AND p.pfa_url IS NOT NULL
     GROUP BY pp.player_id, g.season
     ORDER BY yds DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, limit]);
 }
 
-export async function getSeasonRushingRecords(limit = 25) {
+export async function getSeasonRushingRecords(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name, g.season,
       SUM(pr.yds) as yds, SUM(pr.td) as td, SUM(pr.att) as att,
@@ -772,15 +772,15 @@ export async function getSeasonRushingRecords(limit = 25) {
     FROM player_rushing pr
     JOIN players p ON pr.player_id = p.player_id
     JOIN games g ON pr.game_id = g.game_id
-    WHERE g.game_type = 'regular'
+    WHERE g.game_type = ?
       AND p.pfa_url IS NOT NULL
     GROUP BY pr.player_id, g.season
     ORDER BY yds DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, limit]);
 }
 
-export async function getSeasonReceivingRecords(limit = 25) {
+export async function getSeasonReceivingRecords(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name, g.season,
       SUM(pr.yds) as yds, SUM(pr.td) as td, SUM(pr.rec) as rec,
@@ -788,12 +788,12 @@ export async function getSeasonReceivingRecords(limit = 25) {
     FROM player_receiving pr
     JOIN players p ON pr.player_id = p.player_id
     JOIN games g ON pr.game_id = g.game_id
-    WHERE g.game_type = 'regular'
+    WHERE g.game_type = ?
       AND p.pfa_url IS NOT NULL
     GROUP BY pr.player_id, g.season
     ORDER BY yds DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, limit]);
 }
 
 // ── Defensive leaders ─────────────────────────────────
@@ -803,7 +803,7 @@ export async function getSeasonReceivingRecords(limit = 25) {
 //   player_interceptions: 1967-present
 // We UNION all player IDs from all three tables so older legends appear.
 
-export async function getCareerDefensiveLeaders(limit = 25) {
+export async function getCareerDefensiveLeaders(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name,
       COALESCE(def.tkl, 0) as tkl, COALESCE(def.tfl, 0) as tfl,
@@ -826,30 +826,30 @@ export async function getCareerDefensiveLeaders(limit = 25) {
         COUNT(DISTINCT pd.game_id) as games
       FROM player_defense pd
       JOIN games g ON pd.game_id = g.game_id
-      WHERE g.game_type = 'regular'
+      WHERE g.game_type = ?
       GROUP BY pd.player_id
     ) def ON def.player_id = all_def.player_id
     LEFT JOIN (
       SELECT ps.player_id, SUM(ps.sacks) as sacks, COUNT(DISTINCT ps.game_id) as games
       FROM player_sacks ps
       JOIN games g ON ps.game_id = g.game_id
-      WHERE g.game_type = 'regular'
+      WHERE g.game_type = ?
       GROUP BY ps.player_id
     ) sk ON sk.player_id = all_def.player_id
     LEFT JOIN (
       SELECT pi.player_id, SUM(pi.int_count) as int_count, COUNT(DISTINCT pi.game_id) as games
       FROM player_interceptions pi
       JOIN games g ON pi.game_id = g.game_id
-      WHERE g.game_type = 'regular'
+      WHERE g.game_type = ?
       GROUP BY pi.player_id
     ) it ON it.player_id = all_def.player_id
     WHERE p.pfa_url IS NOT NULL
     ORDER BY sacks DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, gameType, gameType, limit]);
 }
 
-export async function getSeasonDefensiveRecords(limit = 25) {
+export async function getSeasonDefensiveRecords(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name, season,
       COALESCE(tkl, 0) as tkl, COALESCE(tfl, 0) as tfl,
@@ -866,7 +866,7 @@ export async function getSeasonDefensiveRecords(limit = 25) {
         COUNT(DISTINCT pd.game_id) as games
       FROM player_defense pd
       JOIN games g ON pd.game_id = g.game_id
-      WHERE g.game_type = 'regular'
+      WHERE g.game_type = ?
       GROUP BY pd.player_id, g.season
 
       UNION ALL
@@ -877,7 +877,7 @@ export async function getSeasonDefensiveRecords(limit = 25) {
         COUNT(DISTINCT ps.game_id) as games
       FROM player_sacks ps
       JOIN games g ON ps.game_id = g.game_id
-      WHERE g.game_type = 'regular'
+      WHERE g.game_type = ?
       GROUP BY ps.player_id, g.season
 
       UNION ALL
@@ -888,7 +888,7 @@ export async function getSeasonDefensiveRecords(limit = 25) {
         COUNT(DISTINCT pi.game_id) as games
       FROM player_interceptions pi
       JOIN games g ON pi.game_id = g.game_id
-      WHERE g.game_type = 'regular'
+      WHERE g.game_type = ?
       GROUP BY pi.player_id, g.season
     ) combined
     JOIN players p ON combined.player_id = p.player_id
@@ -896,10 +896,10 @@ export async function getSeasonDefensiveRecords(limit = 25) {
     GROUP BY combined.player_id, season
     ORDER BY sacks DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, gameType, gameType, limit]);
 }
 
-export async function getSingleGameDefensiveLeaders(limit = 25) {
+export async function getSingleGameDefensiveLeaders(limit = 25, gameType = "regular") {
   return query(`
     SELECT p.player_id, p.player_name,
       COALESCE(pd.tkl, 0) as tkl, COALESCE(pd.tfl, 0) as tfl,
@@ -920,11 +920,11 @@ export async function getSingleGameDefensiveLeaders(limit = 25) {
     LEFT JOIN player_defense pd ON pd.player_id = all_gp.player_id AND pd.game_id = all_gp.game_id
     LEFT JOIN player_sacks sk ON sk.player_id = all_gp.player_id AND sk.game_id = all_gp.game_id
     LEFT JOIN player_interceptions it ON it.player_id = all_gp.player_id AND it.game_id = all_gp.game_id
-    WHERE g.game_type = 'regular'
+    WHERE g.game_type = ?
       AND p.pfa_url IS NOT NULL
     ORDER BY sacks DESC, it.int_count DESC
     LIMIT ?
-  `, [limit]);
+  `, [gameType, limit]);
 }
 
 // ── Recent games ───────────────────────────────────────
